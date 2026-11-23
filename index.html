@@ -1,0 +1,1956 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>CLI for Beginner — Herdr estro9k 終端機工作台介紹</title>
+  <style>
+    :root {
+      --bg-page: #0b0d12;
+      --bg-card: #131720;
+      --bg-card-hover: #181d28;
+      --bg-chrome: #161920;
+      --bg-surface: #1e222b;
+      --bg-raised: #262b36;
+      --bg-selected: #2c3344;
+      --border: #282e3d;
+      --border-light: #384154;
+      --fg: #e6edf3;
+      --fg-muted: #9ca3af;
+      --fg-dim: #6b7280;
+      --accent: #58a6ff;
+      --done-blue: #3b82f6;
+      --working-amber: #f59e0b;
+      --blocked-red: #ef4444;
+      --green: #98c379;
+      --yellow: #e5c07b;
+      --purple: #c678dd;
+      --red: #e06c75;
+      --gray-ctx: #5c6370;
+      --perm-ask: #3b4252;
+      --perm-safe: #2563eb;
+      --perm-full: #ea580c;
+      --codex-copy-bg: #1e293b;
+      --codex-copy-fg: #38bdf8;
+      --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang TC", "Noto Sans TC", sans-serif;
+      --font-mono: "SF Mono", "JetBrains Mono", "Fira Code", Menlo, Consolas, monospace;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      background-color: var(--bg-page);
+      background-image:
+        radial-gradient(circle at 15% 10%, rgba(37, 99, 235, 0.14), transparent 35%),
+        radial-gradient(circle at 85% 15%, rgba(198, 120, 221, 0.10), transparent 35%);
+      color: var(--fg);
+      font-family: var(--font-sans);
+      line-height: 1.6;
+      min-height: 100vh;
+      padding-bottom: 80px;
+    }
+
+    a {
+      color: var(--accent);
+      text-decoration: none;
+    }
+    a:hover {
+      text-decoration: underline;
+    }
+
+    .container {
+      max-width: 1280px;
+      margin: 0 auto;
+      padding: 0 24px;
+    }
+
+    /* ── Hero Section ── */
+    .hero {
+      padding: 56px 0 36px;
+      text-align: center;
+    }
+
+    .badge-row {
+      display: inline-flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      justify-content: center;
+      margin-bottom: 18px;
+    }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 12px;
+      border-radius: 999px;
+      font-size: 12.5px;
+      font-weight: 600;
+      background: rgba(59, 130, 246, 0.12);
+      border: 1px solid rgba(59, 130, 246, 0.35);
+      color: #93c5fd;
+    }
+
+    .pill.cli {
+      background: rgba(255, 255, 255, 0.05);
+      border-color: var(--border-light);
+      color: var(--fg);
+    }
+
+    .hero h1 {
+      font-size: clamp(28px, 4vw, 44px);
+      font-weight: 800;
+      letter-spacing: -0.02em;
+      margin-bottom: 14px;
+      background: linear-gradient(135deg, #ffffff 30%, #93c5fd 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .hero p.subtitle {
+      max-width: 780px;
+      margin: 0 auto 26px;
+      color: var(--fg-muted);
+      font-size: 16.5px;
+    }
+
+    .hero-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      justify-content: center;
+      align-items: center;
+      margin-bottom: 16px;
+    }
+
+    .cmd-box {
+      display: inline-flex;
+      align-items: center;
+      gap: 12px;
+      background: #0f131a;
+      border: 1px solid var(--border-light);
+      padding: 8px 14px;
+      border-radius: 10px;
+      font-family: var(--font-mono);
+      font-size: 13px;
+      color: var(--codex-copy-fg);
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+    }
+
+    .btn-copy, .btn-gh {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 8px 16px;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      border: 1px solid var(--border-light);
+      background: var(--bg-raised);
+      color: var(--fg);
+      transition: all 0.15s ease;
+    }
+
+    .btn-copy:hover, .btn-gh:hover {
+      background: var(--bg-selected);
+      border-color: var(--accent);
+      text-decoration: none;
+    }
+
+    .btn-gh.primary {
+      background: var(--perm-safe);
+      border-color: #3b82f6;
+      color: #ffffff;
+    }
+    .btn-gh.primary:hover {
+      background: #1d4ed8;
+    }
+
+    .interactive-hint {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 13px;
+      color: #93c5fd;
+      background: rgba(37, 99, 235, 0.14);
+      border: 1px solid rgba(59, 130, 246, 0.3);
+      padding: 6px 16px;
+      border-radius: 999px;
+      margin-bottom: 18px;
+    }
+
+    /* ── Interactive Herdr Window Mockup ── */
+    .herdr-window {
+      background: var(--bg-chrome);
+      border: 1px solid var(--border-light);
+      border-radius: 14px;
+      box-shadow: 0 24px 64px rgba(0, 0, 0, 0.65), 0 0 0 1px rgba(255, 255, 255, 0.05);
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      height: 670px;
+      position: relative;
+      user-select: none;
+    }
+
+    .herdr-body {
+      display: grid;
+      grid-template-columns: 248px 1fr 310px;
+      flex: 1;
+      min-height: 0;
+    }
+
+    @media (max-width: 1024px) {
+      .herdr-window {
+        height: auto;
+      }
+      .herdr-body {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    /* ── Left Sidebar ── */
+    .sidebar {
+      background: var(--bg-chrome);
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+    }
+
+    .sidebar-titlebar {
+      height: 40px;
+      padding: 0 12px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .traffic-lights {
+      display: flex;
+      gap: 7px;
+      align-items: center;
+    }
+    .tl {
+      width: 11px;
+      height: 11px;
+      border-radius: 50%;
+    }
+    .tl.r { background: #ff5f56; }
+    .tl.y { background: #ffbd2e; }
+    .tl.g { background: #27c93f; }
+
+    .app-brand {
+      font-size: 12.5px;
+      font-weight: 700;
+      color: var(--fg);
+      margin-left: 8px;
+    }
+
+    .sec-head {
+      padding: 10px 14px 4px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--fg-dim);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    .space-list, .agent-list {
+      padding: 4px 8px;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .space-item, .agent-item {
+      height: 29px;
+      padding: 0 8px;
+      border-radius: 7px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 12.5px;
+      cursor: pointer;
+      color: var(--fg-muted);
+      transition: background 0.12s;
+      position: relative;
+    }
+
+    .space-item:hover, .agent-item:hover {
+      background: var(--bg-surface);
+      color: var(--fg);
+    }
+
+    .space-item.active, .agent-item.active {
+      background: var(--bg-selected);
+      color: var(--fg);
+      font-weight: 500;
+    }
+
+    .space-avatar {
+      width: 18px;
+      height: 18px;
+      border-radius: 5px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 10.5px;
+      font-weight: 700;
+      color: #fff;
+      flex-shrink: 0;
+    }
+
+    .branch-tag {
+      margin-left: auto;
+      font-size: 11px;
+      color: var(--fg-dim);
+      font-family: var(--font-mono);
+    }
+
+    .sidebar-divider {
+      height: 1px;
+      background: var(--border);
+      margin: 6px 0;
+    }
+
+    .group-label {
+      padding: 4px 8px;
+      font-size: 11px;
+      color: var(--fg-dim);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .group-count {
+      padding: 0 5px;
+      border-radius: 4px;
+      border: 1px solid var(--border);
+      font-size: 10px;
+    }
+
+    .agent-icon {
+      width: 16px;
+      height: 16px;
+      border-radius: 4px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 11px;
+      font-weight: 700;
+      flex-shrink: 0;
+    }
+
+    .agent-title {
+      flex: 1;
+      min-width: 0;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .agent-item.unread .agent-title {
+      color: #ffffff;
+      font-weight: 600;
+    }
+
+    .agent-time {
+      font-size: 11px;
+      color: var(--fg-dim);
+    }
+
+    /* Status dot / ring */
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+    .status-dot.idle {
+      border: 1.5px solid var(--fg-dim);
+      background: transparent;
+    }
+    .status-dot.done {
+      background: var(--done-blue);
+      box-shadow: 0 0 8px rgba(59, 130, 246, 0.75);
+    }
+    .status-dot.working {
+      border: 2px solid var(--working-amber);
+      border-top-color: transparent;
+      animation: spin 1s linear infinite;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    /* Context Menu Popup */
+    .ctx-menu {
+      position: absolute;
+      left: 36px;
+      top: 26px;
+      width: 205px;
+      background: #1c212b;
+      border: 1px solid var(--border-light);
+      border-radius: 10px;
+      padding: 5px;
+      box-shadow: 0 14px 32px rgba(0, 0, 0, 0.65);
+      z-index: 50;
+      display: none;
+    }
+    .ctx-menu.open {
+      display: block;
+    }
+    .ctx-item {
+      height: 30px;
+      padding: 0 10px;
+      border-radius: 7px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 12.5px;
+      color: var(--fg);
+      cursor: pointer;
+    }
+    .ctx-item:hover {
+      background: var(--bg-selected);
+    }
+    .ctx-sep {
+      height: 1px;
+      background: var(--border);
+      margin: 4px 6px;
+    }
+
+    /* Usage Block (over9k-usage) */
+    .usage-panel {
+      margin-top: auto;
+      border-top: 1px solid var(--border);
+      padding: 10px 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 9px;
+      background: rgba(15, 18, 24, 0.55);
+    }
+
+    .usage-group {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .usage-header {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 11.5px;
+      font-weight: 600;
+      color: var(--fg-muted);
+    }
+
+    .plan-badge {
+      font-size: 10px;
+      padding: 1px 5px;
+      border-radius: 4px;
+      background: var(--bg-raised);
+      color: var(--fg-muted);
+      border: 1px solid var(--border);
+    }
+
+    .meter-row {
+      display: grid;
+      grid-template-columns: 58px 1fr 34px 44px;
+      align-items: center;
+      gap: 6px;
+      font-size: 10.5px;
+      color: var(--fg-dim);
+    }
+
+    .meter-bar {
+      height: 4px;
+      background: var(--bg-raised);
+      border-radius: 2px;
+      overflow: hidden;
+    }
+
+    .meter-fill {
+      height: 100%;
+      border-radius: 2px;
+    }
+
+    .credit-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 4px 6px;
+      border-radius: 6px;
+      background: rgba(59, 130, 246, 0.08);
+      border: 1px solid rgba(59, 130, 246, 0.22);
+      font-size: 11px;
+      cursor: pointer;
+    }
+    .credit-row:hover {
+      background: rgba(59, 130, 246, 0.15);
+    }
+
+    .credit-chart {
+      display: none;
+      padding: 6px;
+      background: var(--bg-surface);
+      border-radius: 6px;
+      font-size: 10px;
+      color: var(--fg-muted);
+    }
+    .credit-chart.open {
+      display: block;
+    }
+    .mini-bars {
+      display: flex;
+      align-items: flex-end;
+      gap: 4px;
+      height: 28px;
+      margin-top: 4px;
+    }
+    .mini-bar {
+      flex: 1;
+      background: var(--accent);
+      border-radius: 2px 2px 0 0;
+      opacity: 0.8;
+    }
+
+    /* ── Center Area (Tabs + Split Terminal & Preview) ── */
+    .center-area {
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+      min-height: 0;
+      background: var(--bg-page);
+    }
+
+    .tabs-bar {
+      height: 40px;
+      background: var(--bg-chrome);
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      padding: 0 10px;
+      gap: 6px;
+    }
+
+    .tab-pill {
+      height: 28px;
+      padding: 0 12px;
+      border-radius: 7px;
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      font-size: 12px;
+      color: var(--fg-muted);
+      background: transparent;
+      cursor: pointer;
+      border: 1px solid transparent;
+    }
+    .tab-pill.active {
+      background: var(--bg-surface);
+      color: var(--fg);
+      border-color: var(--border);
+    }
+
+    .panel-toggles {
+      margin-left: auto;
+      display: flex;
+      gap: 4px;
+    }
+
+    .panel-btn {
+      height: 26px;
+      padding: 0 10px;
+      border-radius: 6px;
+      font-size: 11.5px;
+      font-weight: 500;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      color: var(--fg-muted);
+      background: transparent;
+      border: 1px solid transparent;
+      cursor: pointer;
+    }
+    .panel-btn:hover {
+      background: var(--bg-surface);
+      color: var(--fg);
+    }
+    .panel-btn.active {
+      background: var(--bg-selected);
+      color: var(--fg);
+      border-color: var(--border-light);
+    }
+
+    /* Split Workspace: Left Terminal + Right Inline Media Preview */
+    .workspace-split {
+      flex: 1;
+      display: grid;
+      grid-template-columns: 1.15fr 0.85fr;
+      gap: 8px;
+      padding: 8px;
+      min-height: 0;
+    }
+
+    @media (max-width: 860px) {
+      .workspace-split {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .pane-card {
+      background: #10131a;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+      overflow: hidden;
+    }
+    .pane-card.focused {
+      border-color: #3b82f6;
+      box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.25);
+    }
+
+    .pane-head {
+      height: 32px;
+      padding: 0 12px;
+      background: var(--bg-chrome);
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 11.5px;
+      color: var(--fg-muted);
+    }
+
+    .cli-switcher {
+      display: inline-flex;
+      gap: 4px;
+      background: var(--bg-surface);
+      padding: 2px;
+      border-radius: 6px;
+    }
+
+    .cli-tab {
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 11px;
+      cursor: pointer;
+      color: var(--fg-muted);
+    }
+    .cli-tab.active {
+      background: var(--bg-selected);
+      color: #fff;
+      font-weight: 600;
+    }
+
+    .term-content {
+      flex: 1;
+      padding: 14px;
+      font-family: var(--font-mono);
+      font-size: 12.5px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .term-msg-user {
+      color: #60a5fa;
+      font-weight: 600;
+    }
+
+    .term-msg-ai {
+      color: var(--fg);
+      line-height: 1.55;
+    }
+
+    .copy-pill {
+      display: inline-block;
+      background: var(--codex-copy-bg);
+      color: var(--codex-copy-fg);
+      border: 1px solid rgba(56, 189, 248, 0.35);
+      padding: 2px 8px;
+      border-radius: 5px;
+      font-family: var(--font-mono);
+      font-weight: 600;
+    }
+
+    .file-link {
+      color: #38bdf8;
+      text-decoration: underline;
+      cursor: pointer;
+      background: rgba(56, 189, 248, 0.1);
+      padding: 1px 6px;
+      border-radius: 4px;
+    }
+    .file-link:hover {
+      background: rgba(56, 189, 248, 0.22);
+    }
+
+    /* Bottom fixed input & AI colored statusline */
+    .term-footer {
+      margin-top: auto;
+      border-top: 1px solid var(--border);
+      background: #0d1016;
+      padding: 8px 12px 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .term-prompt-line {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-family: var(--font-mono);
+      font-size: 12.5px;
+      color: var(--fg-muted);
+    }
+
+    .cursor-block {
+      display: inline-block;
+      width: 7px;
+      height: 15px;
+      background: var(--fg);
+      animation: blink 1.1s step-end infinite;
+    }
+    @keyframes blink {
+      50% { opacity: 0; }
+    }
+
+    .ai-statusline {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 5px;
+      font-family: var(--font-mono);
+      font-size: 11.5px;
+      font-weight: 600;
+    }
+
+    .sl-block {
+      padding: 2px 8px;
+      border-radius: 3px;
+      white-space: nowrap;
+    }
+    .sl-model { background: var(--yellow); color: #1e2127; }
+    .sl-path { background: var(--green); color: #1e2127; }
+    .sl-ctx { background: var(--gray-ctx); color: #ffffff; cursor: pointer; }
+    .sl-ctx.warn { background: var(--red); color: #ffffff; }
+    .sl-perm { background: var(--perm-ask); color: #ffffff; transition: background 0.15s; }
+    .sl-thread { background: var(--purple); color: #1e2127; }
+
+    /* Right Split: cria-file-preview */
+    .preview-toolbar {
+      height: 34px;
+      padding: 0 10px;
+      background: var(--bg-surface);
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 11.5px;
+    }
+
+    .preview-btn {
+      padding: 2px 7px;
+      border-radius: 5px;
+      background: var(--bg-raised);
+      color: var(--fg-muted);
+      cursor: pointer;
+      font-size: 11px;
+      border: 1px solid var(--border);
+    }
+    .preview-btn:hover, .preview-btn.active {
+      background: var(--bg-selected);
+      color: #fff;
+    }
+
+    .preview-canvas {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 16px;
+      background: radial-gradient(circle, #181d27 0%, #0f1218 100%);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .mock-image-card {
+      width: 100%;
+      max-width: 280px;
+      aspect-ratio: 16 / 10;
+      border-radius: 10px;
+      border: 1px solid var(--border-light);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 16px;
+      text-align: center;
+      transition: transform 0.2s ease;
+      box-shadow: 0 12px 30px rgba(0, 0, 0, 0.45);
+    }
+
+    .preview-hint-bar {
+      position: absolute;
+      bottom: 8px;
+      left: 10px;
+      right: 10px;
+      display: flex;
+      justify-content: space-between;
+      font-size: 10.5px;
+      color: var(--fg-dim);
+      background: rgba(15, 18, 24, 0.85);
+      padding: 4px 10px;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+    }
+
+    /* ── Right Panel (Files / Plan / To-do) ── */
+    .right-panel {
+      background: var(--bg-chrome);
+      border-left: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+    }
+
+    .rp-header {
+      height: 40px;
+      padding: 0 12px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12.5px;
+    }
+
+    .rp-chip {
+      padding: 2px 7px;
+      border-radius: 5px;
+      font-size: 11px;
+      font-weight: 600;
+      cursor: pointer;
+      background: var(--bg-raised);
+      color: var(--fg-muted);
+    }
+    .rp-chip.active {
+      background: var(--bg-selected);
+      color: var(--fg);
+    }
+    .rp-chip.auto-on {
+      background: var(--accent);
+      color: #0b0d12;
+    }
+
+    .auto-filter-bar {
+      padding: 8px 10px;
+      background: var(--bg-surface);
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      flex-wrap: wrap;
+      gap: 5px;
+    }
+    .filter-tag {
+      padding: 2px 7px;
+      border-radius: 5px;
+      font-size: 10.5px;
+      background: var(--bg-selected);
+      color: var(--fg);
+      cursor: pointer;
+    }
+    .filter-tag.off {
+      background: var(--bg-chrome);
+      color: var(--fg-dim);
+    }
+
+    .file-tree {
+      padding: 8px;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      overflow-y: auto;
+      flex: 1;
+    }
+
+    .file-row {
+      height: 27px;
+      padding: 0 8px;
+      border-radius: 6px;
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      font-size: 12.5px;
+      color: var(--fg-muted);
+      cursor: pointer;
+    }
+    .file-row:hover {
+      background: var(--bg-surface);
+      color: var(--fg);
+    }
+    .file-row.active {
+      background: var(--bg-selected);
+      color: var(--accent);
+      font-weight: 600;
+    }
+
+    /* ── Bottom Window Status Bar (custom-status) ── */
+    .window-statusbar {
+      height: 32px;
+      background: var(--bg-chrome);
+      border-top: 1px solid var(--border);
+      padding: 0 14px;
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      font-size: 11.8px;
+      color: var(--fg-muted);
+    }
+
+    .perm-switch-group {
+      margin-left: auto;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      padding: 2px 5px;
+      border-radius: 6px;
+    }
+
+    .perm-btn {
+      height: 21px;
+      padding: 0 9px;
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: 600;
+      display: inline-flex;
+      align-items: center;
+      cursor: pointer;
+      color: var(--fg-muted);
+      background: var(--bg-chrome);
+      transition: all 0.14s ease;
+    }
+    .perm-btn:hover {
+      color: #fff;
+      background: var(--bg-raised);
+    }
+    .perm-btn.active[data-mode="ask"] {
+      background: var(--perm-ask);
+      color: #ffffff;
+    }
+    .perm-btn.active[data-mode="safe"] {
+      background: var(--perm-safe);
+      color: #ffffff;
+    }
+    .perm-btn.active[data-mode="full"] {
+      background: var(--perm-full);
+      color: #ffffff;
+    }
+
+    /* Toast Notification */
+    .herdr-toast {
+      position: absolute;
+      right: 16px;
+      bottom: 44px;
+      width: 310px;
+      background: #1b202b;
+      border: 1px solid var(--border-light);
+      border-radius: 10px;
+      padding: 10px 14px;
+      box-shadow: 0 14px 36px rgba(0, 0, 0, 0.65);
+      font-size: 12px;
+      z-index: 40;
+      transition: opacity 0.2s, transform 0.2s;
+    }
+    .herdr-toast.hidden {
+      opacity: 0;
+      pointer-events: none;
+      transform: translateY(8px);
+    }
+    .toast-title {
+      font-weight: 700;
+      color: var(--fg);
+      margin-bottom: 3px;
+    }
+    .toast-body {
+      color: var(--fg-muted);
+      font-size: 11.5px;
+    }
+
+    /* ── Feature Spotlight Bar (below mockup) ── */
+    .spotlight-bar {
+      margin-top: 16px;
+      background: rgba(37, 99, 235, 0.1);
+      border: 1px solid rgba(59, 130, 246, 0.3);
+      border-radius: 12px;
+      padding: 14px 20px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+
+    /* ── Bento Feature Grid ── */
+    .section-title {
+      margin: 64px 0 24px;
+      text-align: center;
+    }
+    .section-title h2 {
+      font-size: 28px;
+      font-weight: 800;
+      margin-bottom: 8px;
+    }
+    .section-title p {
+      color: var(--fg-muted);
+      font-size: 15px;
+    }
+
+    .bento-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 20px;
+    }
+
+    @media (max-width: 960px) {
+      .bento-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .bento-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      transition: transform 0.15s ease, border-color 0.15s ease;
+    }
+    .bento-card:hover {
+      transform: translateY(-2px);
+      border-color: var(--border-light);
+      background: var(--bg-card-hover);
+    }
+
+    .bento-icon {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 40px;
+      height: 40px;
+      border-radius: 10px;
+      font-size: 20px;
+      background: rgba(59, 130, 246, 0.14);
+      border: 1px solid rgba(59, 130, 246, 0.3);
+    }
+
+    .bento-card h3 {
+      font-size: 17.5px;
+      font-weight: 700;
+      color: #fff;
+    }
+
+    .bento-card p, .bento-card li {
+      font-size: 13.8px;
+      color: var(--fg-muted);
+    }
+
+    .bento-card ul {
+      padding-left: 18px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .kbd {
+      display: inline-block;
+      padding: 1px 6px;
+      border-radius: 4px;
+      font-family: var(--font-mono);
+      font-size: 11.5px;
+      background: var(--bg-raised);
+      border: 1px solid var(--border-light);
+      color: var(--fg);
+    }
+
+    /* ── Architecture Table ── */
+    .table-wrap {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      overflow-x: auto;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      text-align: left;
+      font-size: 13.5px;
+    }
+
+    th, td {
+      padding: 14px 18px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    th {
+      background: var(--bg-chrome);
+      color: var(--fg-muted);
+      font-weight: 600;
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    tr:last-child td {
+      border-bottom: none;
+    }
+
+    .tag-custom {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 999px;
+      font-size: 11px;
+      font-weight: 600;
+      background: rgba(37, 99, 235, 0.18);
+      color: #93c5fd;
+      border: 1px solid rgba(59, 130, 246, 0.35);
+    }
+
+    footer {
+      margin-top: 64px;
+      text-align: center;
+      color: var(--fg-dim);
+      font-size: 13px;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="container">
+    <!-- ── Hero ── -->
+    <header class="hero">
+      <div class="badge-row">
+        <span class="pill">✨ Herdr Custom Layout · estro9k</span>
+        <span class="pill cli">Claude Code</span>
+        <span class="pill cli">Antigravity (agy)</span>
+        <span class="pill cli">OpenAI Codex</span>
+      </div>
+      <h1>CLI for Beginner</h1>
+      <p class="subtitle">
+        專為 AI 終端機新手與多代理協作打造的 Herdr 一站式桌面佈局。<br />
+        整合<strong>底部三段權限開關</strong>、<strong>三合一即時用量與 Credit 餘額追蹤</strong>、<strong>並排多媒體預覽</strong>與<strong>未讀藍點管理</strong>。
+      </p>
+
+      <div class="hero-actions">
+        <div class="cmd-box">
+          <span id="install-cmd">git clone https://github.com/MilesYP/CLI-for-Beginner.git &amp;&amp; cd CLI-for-Beginner &amp;&amp; sh install.sh</span>
+          <button class="btn-copy" onclick="copyInstallCmd(this)">📋 複製指令</button>
+        </div>
+        <a class="btn-gh primary" href="https://github.com/MilesYP/CLI-for-Beginner" target="_blank" rel="noopener">
+          前往 GitHub Repo ↗
+        </a>
+      </div>
+
+      <div class="interactive-hint">
+        💡 <strong>下方為 1:1 互動式介面預覽</strong>：可直接點擊右下角<strong>三段權限開關</strong>、對左側 Agent <strong>按滑鼠右鍵標記未讀藍點</strong>、或點擊<strong>圖片切檔</strong>！
+      </div>
+    </header>
+
+    <!-- ── Interactive 1:1 Herdr estro9k Mockup ── -->
+    <section class="herdr-window" id="herdr-mockup" oncontextmenu="return false;">
+      <div class="herdr-body">
+
+        <!-- 1. Left Sidebar (Spaces + Agents + Usage) -->
+        <aside class="sidebar">
+          <div class="sidebar-titlebar">
+            <div style="display:flex;align-items:center;">
+              <div class="traffic-lights">
+                <span class="tl r"></span><span class="tl y"></span><span class="tl g"></span>
+              </div>
+              <span class="app-brand">Herdr · estro9k</span>
+            </div>
+            <span style="font-size:12px;color:var(--fg-dim);">⌘⇧L</span>
+          </div>
+
+          <div class="sec-head">
+            <span>Spaces</span>
+            <span>＋</span>
+          </div>
+          <div class="space-list">
+            <div class="space-item" onclick="selectSpace(this, 'MulaAgent')">
+              <span class="space-avatar" style="background:#22a99a;">M</span>
+              <span>MulaAgent</span>
+              <span class="branch-tag">main</span>
+            </div>
+            <div class="space-item active" onclick="selectSpace(this, 'CLI-for-Beginner')">
+              <span class="space-avatar" style="background:#5b8def;">C</span>
+              <span>CLI-for-Beginner</span>
+              <span class="branch-tag">main ●</span>
+            </div>
+          </div>
+
+          <div class="sidebar-divider"></div>
+
+          <div class="sec-head">
+            <span>Agents（試試按右鍵 🖱️）</span>
+            <span>⇅</span>
+          </div>
+          <div class="agent-list" id="agent-list">
+            <div class="group-label">▾ Pinned <span class="group-count">1</span></div>
+            <div class="agent-item" data-id="ag-1" onclick="visitAgent(this)" oncontextmenu="openAgentMenu(event, this)">
+              <span class="agent-icon" style="background:#d97757;color:#fff;">C</span>
+              <span class="agent-title">架構規劃與 API 驗證</span>
+              <span class="agent-time">12m</span>
+              <span class="status-dot idle"></span>
+            </div>
+
+            <div class="group-label" style="margin-top:4px;">▾ CLI-for-Beginner <span class="group-count">3</span></div>
+
+            <div class="agent-item unread" data-id="ag-2" onclick="visitAgent(this)" oncontextmenu="openAgentMenu(event, this)">
+              <span class="agent-icon" style="background:#3b82f6;color:#fff;">A</span>
+              <span class="agent-title">Antigravity 狀態列與權限</span>
+              <span class="agent-time">2m</span>
+              <span class="status-dot done" title="完成未讀（藍點）"></span>
+            </div>
+
+            <div class="agent-item active" data-id="ag-3" onclick="visitAgent(this)" oncontextmenu="openAgentMenu(event, this)">
+              <span class="agent-icon" style="background:#10a37f;color:#fff;">X</span>
+              <span class="agent-title">Codex 複製內容自動標色</span>
+              <span class="agent-time">&lt;1m</span>
+              <span class="status-dot idle"></span>
+            </div>
+
+            <!-- Right-click Context Menu Popup -->
+            <div class="ctx-menu" id="agent-ctx-menu">
+              <div class="ctx-item" id="ctx-toggle-unread" onclick="toggleAgentUnread()">
+                <span class="status-dot done"></span>
+                <span id="ctx-unread-label">標記為未讀（顯示藍點）</span>
+              </div>
+              <div class="ctx-sep"></div>
+              <div class="ctx-item" onclick="closeAgentMenu()">
+                <span style="font-size:12px;color:var(--fg-muted);">📌</span>
+                <span>釘選到最上方</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Bottom Left: over9k-usage -->
+          <div class="usage-panel">
+            <!-- Claude Pro + Credit Est. -->
+            <div class="usage-group">
+              <div class="usage-header">
+                <span>Claude</span>
+                <span class="plan-badge">Pro</span>
+              </div>
+              <div class="meter-row">
+                <span>5h</span>
+                <div class="meter-bar"><div class="meter-fill" style="width:18%;background:#98c379;"></div></div>
+                <span style="text-align:right;">18%</span>
+                <span style="text-align:right;">3h 40m</span>
+              </div>
+              <div class="meter-row">
+                <span>7d</span>
+                <div class="meter-bar"><div class="meter-fill" style="width:64%;background:#e5c07b;"></div></div>
+                <span style="text-align:right;">64%</span>
+                <span style="text-align:right;">2d 21h</span>
+              </div>
+              <div class="credit-row" onclick="toggleCreditChart()" title="點擊展開每日 Token 花費估算">
+                <span>Credit <span class="plan-badge">Est.</span></span>
+                <span style="color:#93c5fd;font-weight:600;">rem $46.53 ▾</span>
+              </div>
+              <div class="credit-chart" id="credit-chart">
+                <div style="display:flex;justify-content:space-between;">
+                  <span>最近 7 天本機對話估算</span>
+                  <span>1d | <strong>1w</strong> | 30d</span>
+                </div>
+                <div class="mini-bars">
+                  <div class="mini-bar" style="height:35%"></div>
+                  <div class="mini-bar" style="height:55%"></div>
+                  <div class="mini-bar" style="height:40%"></div>
+                  <div class="mini-bar" style="height:80%"></div>
+                  <div class="mini-bar" style="height:60%"></div>
+                  <div class="mini-bar" style="height:95%"></div>
+                  <div class="mini-bar" style="height:45%"></div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Codex Plus -->
+            <div class="usage-group">
+              <div class="usage-header">
+                <span>Codex</span>
+                <span class="plan-badge">Plus</span>
+              </div>
+              <div class="meter-row">
+                <span>5h</span>
+                <div class="meter-bar"><div class="meter-fill" style="width:32%;background:#98c379;"></div></div>
+                <span style="text-align:right;">32%</span>
+                <span style="text-align:right;">4h 12m</span>
+              </div>
+              <div class="meter-row">
+                <span>7d</span>
+                <div class="meter-bar"><div class="meter-fill" style="width:21%;background:#98c379;"></div></div>
+                <span style="text-align:right;">21%</span>
+                <span style="text-align:right;">6d 14h</span>
+              </div>
+            </div>
+
+            <!-- Gemini Pro (agy) -->
+            <div class="usage-group">
+              <div class="usage-header">
+                <span>Gemini</span>
+                <span class="plan-badge">Pro</span>
+              </div>
+              <div class="meter-row">
+                <span>5h</span>
+                <div class="meter-bar"><div class="meter-fill" style="width:45%;background:#98c379;"></div></div>
+                <span style="text-align:right;">45%</span>
+                <span style="text-align:right;">2h 15m</span>
+              </div>
+              <div class="meter-row">
+                <span>5h 3rd</span>
+                <div class="meter-bar"><div class="meter-fill" style="width:77%;background:#e5c07b;"></div></div>
+                <span style="text-align:right;">77%</span>
+                <span style="text-align:right;">1h 10m</span>
+              </div>
+            </div>
+          </div>
+        </aside>
+
+        <!-- 2. Center Area (better-tabs + Split Terminal & Inline Media Preview) -->
+        <main class="center-area" onclick="closeAgentMenu()">
+          <div class="tabs-bar">
+            <div class="tab-pill">
+              <span>&gt;_</span>
+              <span>CLI-for-Beginner</span>
+            </div>
+            <div class="tab-pill active">
+              <span style="color:#3b82f6;font-weight:700;">A</span>
+              <span id="active-tab-title">Antigravity · 狀態列與權限開關</span>
+              <span class="status-dot idle"></span>
+            </div>
+            <span style="color:var(--fg-dim);padding:0 6px;">＋</span>
+
+            <div class="panel-toggles">
+              <button class="panel-btn active" onclick="switchRightPanel('files', this)">📁 Files</button>
+              <button class="panel-btn" onclick="switchRightPanel('changes', this)">± Changes</button>
+              <button class="panel-btn" onclick="switchRightPanel('plan', this)">☰ Plan</button>
+              <button class="panel-btn" onclick="switchRightPanel('todo', this)">✓ To-do</button>
+            </div>
+          </div>
+
+          <div class="workspace-split">
+            <!-- Left Split: AI CLI Terminal -->
+            <div class="pane-card focused">
+              <div class="pane-head">
+                <span id="term-head-title">A  Antigravity  ~/Developer/CLI-for-Beginner</span>
+                <div class="cli-switcher" title="點擊預覽三套 CLI 的統一狀態列">
+                  <span class="cli-tab active" onclick="switchCli('agy', this)">agy</span>
+                  <span class="cli-tab" onclick="switchCli('claude', this)">Claude</span>
+                  <span class="cli-tab" onclick="switchCli('codex', this)">Codex</span>
+                </div>
+              </div>
+
+              <div class="term-content">
+                <div class="term-msg-user">&gt; 幫我看一下最新產出的介面截圖，並提供可以直接複製的安裝指令</div>
+                <div class="term-msg-ai">
+                  已完成設定並產生預覽圖！你可以按住 <span class="kbd">⌘ Cmd</span> 點擊下方檔案連結，直接在右半邊<strong>並排預覽框</strong>原地開啟圖片（不蓋住對話框）：<br />
+                  👉 <span class="file-link" onclick="stepPreview(0)">evidence/estro9k-layout.png</span>
+                  <span class="file-link" onclick="stepPreview(1)">evidence/estro9k-plan-panel.png</span>
+                  <span class="file-link" onclick="stepPreview(2)">evidence/estro9k-todo-panel.png</span>
+                </div>
+                <div class="term-msg-ai" style="margin-top:4px;">
+                  需要複製給朋友安裝時，在 Codex 與各 CLI 下皆會自動以高對比青色膠囊標示待複製文字：<br />
+                  📋 ：<span class="copy-pill">sh ~/Developer/CLI-for-Beginner/install.sh</span>
+                </div>
+                <div class="term-msg-ai" style="font-size:11.5px;color:var(--fg-dim);margin-top:4px;">
+                  💡 提示：點擊下方狀態列的 <strong>Context 11% used</strong> 可模擬超過 70% 時自動轉紅警示；點擊視窗最右下角可切換當前對話的<strong>三段權限模式</strong>。
+                </div>
+              </div>
+
+              <!-- Fixed Bottom Input & Unified Colored Statusline -->
+              <div class="term-footer">
+                <div class="term-prompt-line">
+                  <span style="color:var(--accent);font-weight:700;">&gt;</span>
+                  <span class="cursor-block"></span>
+                  <span style="color:var(--fg-dim);font-size:11.5px;">輸入框固定於畫面最底部（Full screen altscreen 模式）</span>
+                </div>
+                <div class="ai-statusline">
+                  <span class="sl-block sl-model" id="sl-model">Gemini 4 Argon (Medium)</span>
+                  <span class="sl-block sl-path">~/Developer/CLI-for-Beginner</span>
+                  <span class="sl-block sl-ctx" id="sl-ctx" onclick="toggleCtxWarn()" title="點擊測試 70% 紅色警戒門檻">Context 11% used</span>
+                  <span class="sl-block sl-perm" id="sl-perm">💬 每次都問</span>
+                  <span class="sl-block sl-thread" id="sl-thread">統一狀態列與權限開關</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Right Split: cria-file-preview (Shared Inline Media Preview) -->
+            <div class="pane-card">
+              <div class="preview-toolbar">
+                <span style="font-weight:600;color:var(--fg);" id="preview-filename">🖼 estro9k-layout.png</span>
+                <span style="margin-left:auto;"></span>
+                <span class="preview-btn active" onclick="toggleMediaScope(this)">Media</span>
+                <span class="preview-btn" onclick="stepPreview(-1)" title="上一張 (← / ↑)">‹</span>
+                <span style="font-family:var(--font-mono);font-size:11px;color:var(--fg-muted);" id="preview-index">1 / 3</span>
+                <span class="preview-btn" onclick="stepPreview(1)" title="下一張 (→ / ↓)">›</span>
+                <span class="preview-btn" onclick="zoomPreview(1.25)" title="觸控板兩指張開放大">＋</span>
+                <span class="preview-btn" onclick="zoomPreview(1)" title="適應視窗">Fit</span>
+              </div>
+
+              <div class="preview-canvas">
+                <div class="mock-image-card" id="mock-image-card" style="background:linear-gradient(135deg,#1e3a8a,#1e1b4b);">
+                  <div style="font-size:28px;margin-bottom:6px;" id="mock-img-emoji">🖥️</div>
+                  <div style="font-weight:700;font-size:14px;color:#fff;" id="mock-img-title">estro9k-layout.png</div>
+                  <div style="font-size:11.5px;color:#93c5fd;margin-top:4px;" id="mock-img-desc">
+                    並排預覽框：共用同一窗格原地換圖<br/>右側 Files 自動跟隨切換至 evidence/ 並高亮
+                  </div>
+                </div>
+
+                <div class="preview-hint-bar">
+                  <span>⌨️ 方向鍵 ← → ↑ ↓ 切圖</span>
+                  <span>🤌 支援觸控板兩指捏合 (Pinch) 縮放</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </main>
+
+        <!-- 3. Right Panel (cria-files-extended / Plan / To-do) -->
+        <aside class="right-panel" id="right-panel">
+          <div class="rp-header">
+            <span style="font-weight:700;" id="rp-title">Files</span>
+            <span class="rp-chip" onclick="resetRootDir()" title="回上一層目錄">↑</span>
+            <span class="rp-chip" style="color:var(--accent);" onclick="resetRootDir()" title="返回專案根目錄">⌂</span>
+            <span style="margin-left:auto;font-size:11.5px;color:var(--fg-dim);font-family:var(--font-mono);" id="rp-dir-label">evidence</span>
+            <span class="rp-chip active" onclick="toggleSplitMode(this)" title="預設並排開啟預覽，不蓋住對話框">並排</span>
+            <span class="rp-chip auto-on" onclick="toggleAutoBar(this)" title="新產出檔案自動更新預覽">Auto</span>
+          </div>
+
+          <div class="auto-filter-bar" id="auto-filter-bar">
+            <span class="filter-tag" onclick="this.classList.toggle('off')">✓ 圖片</span>
+            <span class="filter-tag" onclick="this.classList.toggle('off')">✓ PDF</span>
+            <span class="filter-tag" onclick="this.classList.toggle('off')">✓ HTML</span>
+            <span class="filter-tag" onclick="this.classList.toggle('off')">✓ MD</span>
+            <span class="filter-tag off" onclick="this.classList.toggle('off')">影音</span>
+            <span class="filter-tag" onclick="this.classList.toggle('off')">✓ 略過系統MD</span>
+          </div>
+
+          <div class="file-tree" id="rp-tree">
+            <!-- Populated by JS -->
+          </div>
+        </aside>
+      </div>
+
+      <!-- 4. Bottom Window Status Bar with 3-Way Permission Switch (custom-status) -->
+      <div class="window-statusbar">
+        <span>🖥️ This computer</span>
+        <span>⎇ main</span>
+        <span>● 3 agents</span>
+
+        <div class="perm-switch-group">
+          <span style="font-size:11px;color:var(--fg-dim);padding:0 4px;" id="perm-target-label">權限 (Antigravity):</span>
+          <div class="perm-btn active" data-mode="ask" onclick="setPermMode('ask', this)">💬 每次都問</div>
+          <div class="perm-btn" data-mode="safe" onclick="setPermMode('safe', this)">🚧 刪改才問</div>
+          <div class="perm-btn" data-mode="full" onclick="setPermMode('full', this)">🚀 最高權限</div>
+        </div>
+
+        <span style="color:var(--fg-dim);">⌘⇧P commands</span>
+      </div>
+
+      <!-- Toast Notification -->
+      <div class="herdr-toast hidden" id="herdr-toast">
+        <div class="toast-title" id="toast-title">Antigravity 權限已切換為：🚧 刪改才問</div>
+        <div class="toast-body" id="toast-body">安全防護：一般讀寫與測試自動放行；只有刪除檔案或強制覆蓋時才詢問你</div>
+      </div>
+    </section>
+
+    <!-- Spotlight Bar -->
+    <div class="spotlight-bar">
+      <div>
+        <strong style="color:#93c5fd;">🎯 當前互動焦點：</strong>
+        <span id="spotlight-text" style="color:var(--fg);">試試點擊視窗右下角的「💬 每次都問 / 🚧 刪改才問 / 🚀 最高權限」，或對左側 Agents 清單按滑鼠右鍵！</span>
+      </div>
+      <span style="font-size:12px;color:var(--fg-muted);">所有設定皆保存在 <code>HerdrSetup/</code>，執行 <code>sh install.sh</code> 即可一鍵還原</span>
+    </div>
+
+    <!-- ── Six Core Customizations (Bento Grid) ── -->
+    <div class="section-title">
+      <h2>六大核心客製化亮點</h2>
+      <p>解決命令列新手與重度多代理使用者的所有視覺與操作痛點</p>
+    </div>
+
+    <div class="bento-grid">
+      <!-- 1 -->
+      <div class="bento-card">
+        <div class="bento-icon">🚧</div>
+        <h3>1. 底部三段權限開關（Per-Session 獨立生效）</h3>
+        <p>不必再記複雜的 CLI 啟動旗標！在視窗最底部直接用滑鼠點擊切換當前對話框的權限檔位，並透過 <code>PreToolUse / PermissionRequest</code> Hook 與狀態列色塊即時連動：</p>
+        <ul>
+          <li><strong style="color:#93c5fd;">💬 每次都問（預設，深石板藍）</strong>：寫檔、改檔或執行指令前每次詢問（純讀檔自動放行）。</li>
+          <li><strong style="color:#60a5fa;">🚧 刪改才問（皇家亮藍）</strong>：日常開發最推薦！一般改碼與跑測試自動放行；只有遇到 <code>rm</code>、覆蓋既有檔案、<code>git reset --hard</code> 等破壞性操作才攔截詢問。</li>
+          <li><strong style="color:#fb923c;">🚀 最高權限（烈焰橘紅）</strong>：當前對話全速自動放行。</li>
+        </ul>
+      </div>
+
+      <!-- 2 -->
+      <div class="bento-card">
+        <div class="bento-icon">🖼️</div>
+        <h3>2. 並排共用預覽框 ＋ 右側 Files 自動跟隨</h3>
+        <p>看圖不再蓋住對話框、也不會越開越多分頁：</p>
+        <ul>
+          <li><strong>預設並排、原地換圖</strong>：在終端機按 <span class="kbd">⌘ Cmd</span> + 點擊檔案路徑（含 <code>file://</code>），會在右半邊並排開啟預覽；再點下一張圖時<strong>直接原地換圖</strong>。</li>
+          <li><strong>目錄自動同步＋高亮</strong>：預覽圖片時，右側 <code>Files</code> 自動切換至該圖片所在資料夾並高亮檔案，附帶 <span class="kbd">↑</span> 回上一層與 <span class="kbd">⌂</span> 回根目錄按鈕。</li>
+          <li><strong>四方向鍵切圖＋兩指縮放</strong>：支援鍵盤 <span class="kbd">←</span> <span class="kbd">→</span> <span class="kbd">↑</span> <span class="kbd">↓</span> 切圖，以及觸控板<strong>兩指捏合（Pinch）</strong>無段縮放。</li>
+        </ul>
+      </div>
+
+      <!-- 3 -->
+      <div class="bento-card">
+        <div class="bento-icon">🔵</div>
+        <h3>3. 左側 Agent 列右鍵「標記為未讀藍點」</h3>
+        <p>多個 Agent 同時跑完任務時，點過去看一眼藍點就消失了？現在可以隨時把重要的對話標回來：</p>
+        <ul>
+          <li>在左側 <code>Agents</code> 清單對任何一個 Agent 按<strong>滑鼠右鍵</strong>彈出下拉選單。</li>
+          <li>點選 <strong>「標記為未讀（顯示藍點）」</strong>，即可將空心灰圓環恢復為<strong>實心亮藍點</strong>與亮白標題（在 Priority 排序下也會自動歸回 <code>Done</code> 區）。</li>
+          <li>下次左鍵點擊進入該對話時，自動清除未讀藍點恢復已讀。</li>
+        </ul>
+      </div>
+
+      <!-- 4 -->
+      <div class="bento-card">
+        <div class="bento-icon">🎨</div>
+        <h3>4. 三套 AI 統一彩色狀態列 ＋ 70% 轉紅警示</h3>
+        <p>無論你開的是 <strong>Claude Code</strong>、<strong>Antigravity (<code>agy</code>)</strong> 還是 <strong>Codex</strong>，底部狀態列都共用同一套五色塊標準：</p>
+        <ul>
+          <li>順序固定為：<code>[模型名稱] [目前路徑] [Context 已用 %] [權限模式] [對話標題]</code>。</li>
+          <li><strong>Context 警戒變色</strong>：平時為沉穩灰底，一旦 Context 用量達 <strong>70%</strong> 立即自動轉為<strong>珊瑚紅底</strong>，提醒你適時執行 <code>/compact</code>。</li>
+          <li>自動將 <code>agy</code> 對話主題同步至 Herdr 側欄與分頁標題。</li>
+        </ul>
+      </div>
+
+      <!-- 5 -->
+      <div class="bento-card">
+        <div class="bento-icon">📋</div>
+        <h3>5. Codex 待複製內容自動標色 ＋ 高對比深色主題</h3>
+        <p>解決 Codex 預設淺色主題在深色終端機下反光看不清、以及「待複製文字」跟一般說明混在一起的問題：</p>
+        <ul>
+          <li>內建 <code>cli-beginner-dark.tmTheme</code>，將多行複製區塊渲染為<strong>深藍底色＋亮青色字體</strong>。</li>
+          <li>透過全域 <code>~/.codex/AGENTS.md</code> 規範所有 <code>📋 ：</code> 後方的待複製指令一律以反引號包住，直接變成醒目的<strong>亮青色膠囊文字</strong>。</li>
+        </ul>
+      </div>
+
+      <!-- 6 -->
+      <div class="bento-card">
+        <div class="bento-icon">📊</div>
+        <h3>6. 左下三合一用量監控 ＋ Claude Credit 剩餘額度</h3>
+        <p>左下角 <code>over9k-usage</code> 面板一次掌握三大 AI 平台額度：</p>
+        <ul>
+          <li><strong>Claude <code>Pro</code> ＋ <code>Credit Est.</code></strong>：除了 5h / 7d 進度條，更支援從基準餘額（<code>claude-credit.json</code>）自動扣除本機新增對話花費，即時顯示<strong>預估剩餘美金</strong>與 1d / 1w / 30d 每日長條圖。</li>
+          <li><strong>Codex <code>Plus</code> ＆ Gemini <code>Pro</code></strong>：自動讀取本機 session 與狀態列快取，含 5h / 7d 及 3rd-party 模型配額。</li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- ── Architecture & Mod Credits ── -->
+    <div class="section-title">
+      <h2>版面模組架構與來源清單</h2>
+      <p>站在 Herdr 社群模組的肩膀上深度整合，所有客製化程式碼完整保存在本儲存庫</p>
+    </div>
+
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>介面區塊</th>
+            <th>Mod / 腳本名稱</th>
+            <th>客製化內容與功能</th>
+            <th>基底來源</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>左側空間與 Agent 列</strong></td>
+            <td><code>better-sidebar</code> <span class="tag-custom">已客製</span></td>
+            <td>上區 Spaces、下區 Agents；<strong>新增滑鼠右鍵下拉選單「標記為未讀（顯示藍點）／標記為已讀／釘選」</strong></td>
+            <td>munza/herdr-mods (estro)</td>
+          </tr>
+          <tr>
+            <td><strong>右側檔案樹面板</strong></td>
+            <td><code>cria-files-extended</code> <span class="tag-custom">深度客製</span></td>
+            <td>新增<strong>「並排 / 分頁」切換鈕</strong>、<strong>自動跟隨預覽媒體檔目錄＋高亮＋<code>↑</code>/<code>⌂</code> 導覽</strong>、<strong>四方向鍵切檔</strong>、<strong><code>Auto</code> 自動預覽篩選晶片列</strong></td>
+            <td>gsydler/herdr-cria</td>
+          </tr>
+          <tr>
+            <td><strong>並排多媒體預覽器</strong></td>
+            <td><code>cria-file-preview</code> <span class="tag-custom">深度客製</span></td>
+            <td><strong>同分頁共用預覽框原地換圖</strong>、<strong><code>Cmd+點擊</code> 終端機連結（含 <code>file://</code>）攔截</strong>、<strong><code>All/Media</code> 與四方向鍵切圖</strong>、<strong>觸控板兩指捏合（<code>on_pinch</code>）縮放</strong>、HTML／Mermaid／PDF／音訊整合</td>
+            <td>herdr-cria + herdr-files-plus</td>
+          </tr>
+          <tr>
+            <td><strong>左下三合一用量面板</strong></td>
+            <td><code>over9k-usage</code> <span class="tag-custom">深度客製</span></td>
+            <td>同時顯示 Claude / Codex / Gemini (agy) 用量；<strong>新增 Claude <code>Pro</code> 標籤識別與 <code>Credit Est.</code> 預付額度剩餘美金追蹤</strong></td>
+            <td>herunan/herdr-over9k</td>
+          </tr>
+          <tr>
+            <td><strong>底部狀態列與權限開關</strong></td>
+            <td><code>custom-status</code> <span class="tag-custom">自研模組</span></td>
+            <td>視窗最底部三段式點擊開關（<strong><code>💬 每次都問</code>／<code>🚧 刪改才問</code>／<code>🚀 最高權限</code></strong>），即時同步至三套 CLI 狀態列與 Hook</td>
+            <td>HerdrSetup 原創擴充</td>
+          </tr>
+          <tr>
+            <td><strong>三套 CLI 狀態列與守門員</strong></td>
+            <td><code>statusline/*</code> <span class="tag-custom">自研腳本</span></td>
+            <td><code>ai-statusline.sh</code>、<code>codex_statusline.py</code>、<code>permission-guard.py</code>、<code>cli-beginner-dark.tmTheme</code>、<code>codex-AGENTS.md</code></td>
+            <td>HerdrSetup 原創擴充</td>
+          </tr>
+          <tr>
+            <td><strong>頂部分頁列／任務／待辦</strong></td>
+            <td><code>better-tabs</code> / <code>agent-plans</code> / <code>over9k-todos</code></td>
+            <td>自動換行分頁列、右側面板切換鈕（Files / Changes / Plan / To-do）、Agent 任務同步與專案待辦清單</td>
+            <td>munza / dendenlarin / herunan</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <footer>
+      <p>CLI for Beginner (Herdr <code>estro9k</code> Setup) · Open Source on <a href="https://github.com/MilesYP/CLI-for-Beginner" target="_blank" rel="noopener">GitHub (MilesYP/CLI-for-Beginner)</a></p>
+    </footer>
+  </div>
+
+  <script>
+    // ── 1. Copy Install Command ──
+    function copyInstallCmd(btn) {
+      const text = "git clone https://github.com/MilesYP/CLI-for-Beginner.git && cd CLI-for-Beginner && sh install.sh";
+      navigator.clipboard?.writeText(text);
+      const old = btn.textContent;
+      btn.textContent = "✓ 已複製！";
+      btn.style.borderColor = "#3b82f6";
+      setTimeout(() => { btn.textContent = old; btn.style.borderColor = ""; }, 1800);
+    }
+
+    // ── 2. Bottom 3-Way Permission Switch ──
+    const PERM_META = {
+      ask: {
+        label: "💬 每次都問",
+        color: "#3b4252",
+        tip: "嚴格模式（預設）：寫入、修改檔案或執行指令前每次都會詢問你"
+      },
+      safe: {
+        label: "🚧 刪改才問",
+        color: "#2563eb",
+        tip: "安全防護：一般讀寫與測試自動放行；只有刪除檔案或強制覆蓋時才詢問你"
+      },
+      full: {
+        label: "🚀 最高權限",
+        color: "#ea580c",
+        tip: "最高權限：當前對話 session 自動放行所有讀寫與指令"
+      }
+    };
+
+    let toastTimer = null;
+    function setPermMode(mode, btnEl) {
+      document.querySelectorAll(".perm-btn").forEach((b) => b.classList.remove("active"));
+      btnEl.classList.add("active");
+      const meta = PERM_META[mode];
+      const slPerm = document.getElementById("sl-perm");
+      slPerm.textContent = meta.label;
+      slPerm.style.background = meta.color;
+
+      document.getElementById("spotlight-text").innerHTML =
+        `已切換為 <strong>${meta.label}</strong> —— ${meta.tip}`;
+
+      const toast = document.getElementById("herdr-toast");
+      document.getElementById("toast-title").textContent = `權限已切換為：${meta.label}`;
+      document.getElementById("toast-body").textContent = meta.tip;
+      toast.classList.remove("hidden");
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => toast.classList.add("hidden"), 2600);
+    }
+
+    // ── 3. Left Sidebar Agents & Right-Click Unread Blue Dot Menu ──
+    let contextTargetAgent = null;
+
+    function visitAgent(rowEl) {
+      closeAgentMenu();
+      document.querySelectorAll(".agent-item").forEach((el) => el.classList.remove("active"));
+      rowEl.classList.add("active");
+      // Visiting an unread agent clears its manual unread blue dot automatically
+      if (rowEl.classList.contains("unread")) {
+        rowEl.classList.remove("unread");
+        const dot = rowEl.querySelector(".status-dot");
+        dot.classList.remove("done");
+        dot.classList.add("idle");
+        document.getElementById("spotlight-text").innerHTML =
+          `左鍵點擊進入對話：已自動將「<strong>${rowEl.querySelector(".agent-title").textContent}</strong>」的未讀藍點恢復為已讀圓環（可對它按滑鼠右鍵重新標回未讀藍點！）`;
+      }
+      const title = rowEl.querySelector(".agent-title").textContent;
+      document.getElementById("active-tab-title").textContent = title;
+      document.getElementById("sl-thread").textContent = title;
+    }
+
+    function openAgentMenu(e, rowEl) {
+      e.preventDefault();
+      e.stopPropagation();
+      contextTargetAgent = rowEl;
+      const isUnread = rowEl.classList.contains("unread");
+      const label = document.getElementById("ctx-unread-label");
+      const dot = document.querySelector("#ctx-toggle-unread .status-dot");
+      if (isUnread) {
+        label.textContent = "標記為已讀（清除藍點）";
+        dot.className = "status-dot idle";
+      } else {
+        label.textContent = "標記為未讀（顯示藍點）";
+        dot.className = "status-dot done";
+      }
+      const menu = document.getElementById("agent-ctx-menu");
+      menu.style.top = (rowEl.offsetTop + 26) + "px";
+      menu.classList.add("open");
+      document.getElementById("spotlight-text").innerHTML =
+        `已開啟 Agent 右鍵下拉選單：可隨時將已看過的對話<strong>恢復為未讀藍點樣式</strong>！`;
+    }
+
+    function toggleAgentUnread() {
+      if (!contextTargetAgent) return;
+      const isUnread = contextTargetAgent.classList.toggle("unread");
+      const dot = contextTargetAgent.querySelector(".status-dot");
+      dot.className = isUnread ? "status-dot done" : "status-dot idle";
+      const name = contextTargetAgent.querySelector(".agent-title").textContent;
+      document.getElementById("spotlight-text").innerHTML = isUnread
+        ? `🔵 已將「<strong>${name}</strong>」恢復成<strong>未讀藍點樣式</strong>！下次左鍵點擊該對話時會自動變回已讀。`
+        : `⚪ 已清除「<strong>${name}</strong>」的未讀藍點。`;
+      closeAgentMenu();
+    }
+
+    function closeAgentMenu() {
+      document.getElementById("agent-ctx-menu").classList.remove("open");
+    }
+
+    function selectSpace(el, name) {
+      document.querySelectorAll(".space-item").forEach((s) => s.classList.remove("active"));
+      el.classList.add("active");
+      document.getElementById("spotlight-text").innerHTML =
+        `已切換至工作空間 <strong>${name}</strong>`;
+    }
+
+    // ── 4. CLI Statusline Switcher & 70% Context Warning ──
+    const CLI_MODES = {
+      agy: {
+        head: "A  Antigravity  ~/Developer/CLI-for-Beginner",
+        model: "Gemini 4 Argon (Medium)",
+        target: "權限 (Antigravity):"
+      },
+      claude: {
+        head: "C  Claude Code  ~/Developer/CLI-for-Beginner",
+        model: "Claude Opus 4.6",
+        target: "權限 (Claude Code):"
+      },
+      codex: {
+        head: "X  Codex  ~/Developer/CLI-for-Beginner",
+        model: "gpt-5.4 high",
+        target: "權限 (Codex):"
+      }
+    };
+
+    function switchCli(id, tabEl) {
+      document.querySelectorAll(".cli-tab").forEach((t) => t.classList.remove("active"));
+      tabEl.classList.add("active");
+      const cfg = CLI_MODES[id];
+      document.getElementById("term-head-title").textContent = cfg.head;
+      document.getElementById("sl-model").textContent = cfg.model;
+      document.getElementById("perm-target-label").textContent = cfg.target;
+      document.getElementById("spotlight-text").innerHTML =
+        `目前預覽 <strong>${cfg.model}</strong> 的統一彩色狀態列與權限連動。`;
+    }
+
+    let ctxHigh = false;
+    function toggleCtxWarn() {
+      ctxHigh = !ctxHigh;
+      const el = document.getElementById("sl-ctx");
+      if (ctxHigh) {
+        el.textContent = "Context 74% used";
+        el.classList.add("warn");
+        document.getElementById("spotlight-text").innerHTML =
+          `⚠️ 當 Context 用量達到或超過 <strong>70%</strong> 時，狀態列色塊會自動由灰轉紅，提醒你執行 <code>/compact</code>！`;
+      } else {
+        el.textContent = "Context 11% used";
+        el.classList.remove("warn");
+      }
+    }
+
+    function toggleCreditChart() {
+      document.getElementById("credit-chart").classList.toggle("open");
+    }
+
+    // ── 5. Inline Media Preview & Right Files Sync ──
+    const MEDIA_FILES = [
+      {
+        name: "estro9k-layout.png",
+        dir: "evidence",
+        emoji: "🖥️",
+        bg: "linear-gradient(135deg,#1e3a8a,#1e1b4b)",
+        desc: "並排預覽框：共用同一窗格原地換圖，右側 Files 自動切換至 evidence/ 並高亮"
+      },
+      {
+        name: "estro9k-plan-panel.png",
+        dir: "evidence",
+        emoji: "📋",
+        bg: "linear-gradient(135deg,#065f46,#134e4a)",
+        desc: "Agent Plans 面板截圖：即時同步 Claude Code 與 Codex 的任務步驟"
+      },
+      {
+        name: "estro9k-todo-panel.png",
+        dir: "evidence",
+        emoji: "✅",
+        bg: "linear-gradient(135deg,#581c87,#311042)",
+        desc: "To-do 面板截圖：跟著每個專案走的本機待辦清單與 TODO.md 同步"
+      }
+    ];
+
+    let currentMediaIdx = 0;
+    let currentZoom = 1;
+    let showingRoot = false;
+
+    function renderFileTree() {
+      const tree = document.getElementById("rp-tree");
+      const dirLabel = document.getElementById("rp-dir-label");
+      if (showingRoot) {
+        dirLabel.textContent = "CLI-for-Beginner";
+        tree.innerHTML = `
+          <div class="file-row" onclick="showingRoot=false;renderFileTree()">▾ 📁 evidence/</div>
+          <div class="file-row">▸ 📁 layouts/</div>
+          <div class="file-row">▸ 📁 mods/</div>
+          <div class="file-row">▸ 📁 statusline/</div>
+          <div class="file-row">📄 AGENTS.md</div>
+          <div class="file-row">🌐 index.html</div>
+          <div class="file-row">⚙️ install.sh</div>
+          <div class="file-row">📘 README.md</div>
+        `;
+        return;
+      }
+      dirLabel.textContent = "evidence";
+      tree.innerHTML = MEDIA_FILES.map((f, i) => `
+        <div class="file-row ${i === currentMediaIdx ? "active" : ""}" onclick="selectMedia(${i})">
+          <span>🖼️</span>
+          <span style="flex:1;overflow:hidden;text-overflow:ellipsis;">${f.name}</span>
+        </div>
+      `).join("");
+    }
+
+    function selectMedia(idx) {
+      currentMediaIdx = (idx + MEDIA_FILES.length) % MEDIA_FILES.length;
+      showingRoot = false;
+      const item = MEDIA_FILES[currentMediaIdx];
+      document.getElementById("preview-filename").textContent = "🖼 " + item.name;
+      document.getElementById("preview-index").textContent = `${currentMediaIdx + 1} / ${MEDIA_FILES.length}`;
+      const card = document.getElementById("mock-image-card");
+      card.style.background = item.bg;
+      card.style.transform = "scale(1)";
+      currentZoom = 1;
+      document.getElementById("mock-img-emoji").textContent = item.emoji;
+      document.getElementById("mock-img-title").textContent = item.name;
+      document.getElementById("mock-img-desc").textContent = item.desc;
+      renderFileTree();
+      document.getElementById("spotlight-text").innerHTML =
+        `正在並排預覽 <strong>${item.name}</strong> —— 右側 Files 面板已自動切換至 <code>${item.dir}/</code> 並高亮當前檔案！`;
+    }
+
+    function stepPreview(delta) {
+      if (delta === 0) return selectMedia(0);
+      selectMedia(currentMediaIdx + delta);
+    }
+
+    function zoomPreview(factor) {
+      currentZoom = factor === 1 ? 1 : Math.min(1.6, currentZoom * factor);
+      document.getElementById("mock-image-card").style.transform = `scale(${currentZoom})`;
+    }
+
+    function resetRootDir() {
+      showingRoot = true;
+      renderFileTree();
+      document.getElementById("spotlight-text").innerHTML =
+        `已返回專案根目錄 <code>CLI-for-Beginner/</code>（點擊任何圖片預覽時會再次自動跟隨至媒體資料夾）。`;
+    }
+
+    function toggleMediaScope(btn) {
+      btn.textContent = btn.textContent === "Media" ? "All" : "Media";
+    }
+
+    function toggleSplitMode(btn) {
+      const isSplit = btn.textContent === "並排";
+      btn.textContent = isSplit ? "分頁" : "並排";
+      btn.classList.toggle("active", !isSplit);
+    }
+
+    function toggleAutoBar(btn) {
+      const bar = document.getElementById("auto-filter-bar");
+      const open = bar.style.display !== "none";
+      bar.style.display = open ? "none" : "flex";
+      btn.classList.toggle("auto-on", !open);
+    }
+
+    function switchRightPanel(kind, btn) {
+      document.querySelectorAll(".panel-btn").forEach((b) => b.classList.remove("active"));
+      btn.classList.add("active");
+      const title = document.getElementById("rp-title");
+      const tree = document.getElementById("rp-tree");
+      const bar = document.getElementById("auto-filter-bar");
+      if (kind === "files") {
+        title.textContent = "Files";
+        bar.style.display = "flex";
+        renderFileTree();
+      } else if (kind === "changes") {
+        title.textContent = "Changes";
+        bar.style.display = "none";
+        tree.innerHTML = `<div style="padding:14px;color:var(--fg-dim);font-size:12px;">Working tree clean · 所有變更已同步推送至 GitHub</div>`;
+      } else if (kind === "plan") {
+        title.textContent = "Plan";
+        bar.style.display = "none";
+        tree.innerHTML = `
+          <div class="file-row active">✓ 1. 建立底部三段權限開關 (💬/🚧/🚀)</div>
+          <div class="file-row active">✓ 2. 左側 Agent 列右鍵標記未讀藍點</div>
+          <div class="file-row active">✓ 3. 製作互動式 HTML 公開介紹頁</div>
+        `;
+      } else if (kind === "todo") {
+        title.textContent = "To-do";
+        bar.style.display = "none";
+        tree.innerHTML = `
+          <div class="file-row">☐ 試用 🚧 刪改才問模式開發</div>
+          <div class="file-row">☐ 完成所有想加的新功能後放到官方展示牆</div>
+        `;
+      }
+    }
+
+    // Keyboard arrow support for preview
+    window.addEventListener("keydown", (e) => {
+      if (e.key === "ArrowLeft" || e.key === "ArrowUp") stepPreview(-1);
+      else if (e.key === "ArrowRight" || e.key === "ArrowDown") stepPreview(1);
+    });
+
+    renderFileTree();
+  </script>
+</body>
+</html>

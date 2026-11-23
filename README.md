@@ -1,7 +1,9 @@
-# HerdrSetup：estro9k layout
+# HerdrSetup：estro9k layout（CLI for Beginner）
 
 Herdr（終端機／coding agent 桌面 app）的自訂 layout `estro9k` 與它用到的 mod。
 原始檔放在這裡；Herdr 實際讀的是 `~/.config/herdr-app/`，由 `install.sh` 複製過去。
+
+> 🌐 **互動式 HTML 介面介紹頁**：本儲存庫內建 [index.html](index.html)（零外部依賴，支援直接於瀏覽器、Herdr 右側 `cria-file-preview` 或 GitHub Pages 開啟），提供 1:1 互動式 Herdr `estro9k` 介面模擬器（可直接體驗右下角三段權限開關、左側 Agent 右鍵標記未讀藍點、並排預覽切圖與三合一用量面板）。
 
 ## 要改版面時
 
