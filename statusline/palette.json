@@ -1,0 +1,10 @@
+{
+  "threshold": 70,
+  "fg_dark": "#1E2127",
+  "fg_light": "#FFFFFF",
+  "model": "#E5C07B",
+  "path": "#98C379",
+  "context": "#5C6370",
+  "context_warn": "#E06C75",
+  "thread": "#C678DD"
+}
