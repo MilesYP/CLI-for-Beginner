@@ -46,7 +46,7 @@
 - 右側面板按鈕在 `tabs` 區塊的 `props.buttons` 裡，每顆的 `action.target` 要對應 `panel-body` 底下某個子區塊的 id。
 - `panel` 寬度維持 368px（可在 280～900 之間），因為這些 mod 是照這個寬度畫的。
 - Herdr 內建的 layout（`main`、`terminals`、`win98`）和內建 mod 是唯讀的，每次啟動都會被還原。不要改它們；要改，先 `herdr-app do layout.clone`。
-- **客製化 mod 保護（嚴禁直接用上游覆蓋）**：`mods/` 裡共有 7 個 mod，其中 **`cria-files-extended`、`cria-file-preview`、`over9k-usage` 為高度客製化修改版**（包含並排預覽共用原地換圖、`Cmd+點擊` `file://` 連結預覽、右側 `Files` 自動跟隨媒體檔目錄＋高亮＋`↑`/`⌂` 導覽、預覽框與 `Files` 四方向鍵切圖、觸控板兩指捏合 `on_pinch` 縮放、`Auto` 自動預覽篩選、Claude `Pro` 標籤與 `Credit Est.` 剩餘額度追蹤，詳見 `README.md`）。修改時必須在既有程式碼基礎上增修，**絕對不可從上游 repo 重新下載整包覆蓋**。其餘 4 個未修改的第三方 mod 若要修改，也須先在 `README.md` 來源表註明「已修改」。
+- **客製化 mod 保護（嚴禁直接用上游覆蓋）**：`mods/` 裡共有 8 個 mod，其中 **`cria-files-extended`、`cria-file-preview`、`over9k-usage`、`custom-status` 為高度客製化修改版**（包含並排預覽共用原地換圖、`Cmd+點擊` `file://` 連結預覽、右側 `Files` 自動跟隨媒體檔目錄＋高亮＋`↑`/`⌂` 導覽、預覽框與 `Files` 四方向鍵切圖、觸控板兩指捏合 `on_pinch` 縮放、`Auto` 自動預覽篩選、Claude `Pro` 標籤與 `Credit Est.` 剩餘額度追蹤、底部狀態列三段權限開關，詳見 `README.md`）。修改時必須在既有程式碼基礎上增修，**絕對不可從上游 repo 重新下載整包覆蓋**。其餘 4 個未修改的第三方 mod 若要修改，也須先在 `README.md` 來源表註明「已修改」。
 
 ## 4. 加新 mod 或更新 mod
 

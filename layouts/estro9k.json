@@ -287,10 +287,10 @@
           "id": "status",
           "type": "block",
           "size": {
-            "px": 28
+            "px": 30
           },
           "content": {
-            "mod": "workspace-status"
+            "mod": "custom-status"
           }
         }
       ]

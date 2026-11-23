@@ -39,6 +39,7 @@ Herdr（終端機／coding agent 桌面 app）的自訂 layout `estro9k` 與它�
 | 右側 Changes | Herdr 內建 `changes` | Herdr |
 | 右側 Plan（跟著 agent 終端機的任務） | `agent-plans` | dendenlarin/herdr-agent-plans |
 | 右側 To-do（跟著專案的待辦） | `over9k-todos` | herunan/herdr-over9k |
+| 底部狀態列與三段權限開關 | `custom-status` | 由 Herdr `workspace-status` 客製擴充 |
 
 layout 由 Herdr 0.1.16 內建 `main` 改出（`layouts/estro9k.json`）；內建 `main` 不動。
 
@@ -77,10 +78,17 @@ sh uninstall.sh               # 切回 main 並移除；資料檔保留
 - **Codex `Plus`**：直接讀取 `~/.codex/sessions/`，不需額外設定。
 - **Gemini `Pro`（agy）**：由共用狀態列 `~/.config/ai-statusline/statusline.sh` 結尾呼叫 `~/.gemini/antigravity-cli/herdr-usage-cache.sh` 寫入 `~/.cache/over9k/usage/antigravity.json`。
 
-### 3. 三套 Agent（Claude Code、agy、Codex）設定、Hook 與 Credit 額度
+### 3. 三套 Agent（Claude Code、agy、Codex）設定、三段權限開關、Hook 與 Credit 額度
 
-本 repo 的 `statusline/` 與 `mods/` 已完整收錄三套 CLI 的共用狀態列、對話標題腳本、Agent Plans Hook 以及 Claude Credit 額度計算程式：
+本 repo 的 `statusline/` 與 `mods/` 已完整收錄三套 CLI 的共用狀態列、底部三段權限開關、對話標題腳本、Agent Plans Hook、Codex 複製標色設定以及 Claude Credit 額度計算程式：
 
+- **底部狀態列三段權限開關（`mods/custom-status/` ＋ `statusline/permission-guard.py`）**：
+  - 在 Herdr 視窗最底部狀態列右側提供針對**當前對話框 session** 獨立生效的三顆滑鼠點擊按鈕，並與每個 AI 終端機內的彩色狀態列即時連動（狀態儲存於 `~/.cache/over9k/usage/permissions.json`）：
+    1. **`🔒 每次都問`（預設，紅底）**：寫入、修改檔案或執行終端機指令前，每次都會詢問你確認（純讀檔自動放行）。
+    2. **`🛡 刪改才問`（黃底）**：一般讀寫、改程式碼與跑測試自動放行；**只有遇到刪除檔案**（`rm`、`rmdir`、`unlink`、`trash`）、**覆蓋既有檔案**或**危險強制操作**（`mv -f`、`cp -f`、`git reset --hard`、`git clean`、`git checkout --`、`git push -f`）時才攔截並詢問你。
+    3. **`🔓 最高權限`（綠底）**：當前對話 session 自動放行所有工具與指令。
+- **Codex 複製內容自動標色與深色主題（`statusline/codex-AGENTS.md` ＋ `cli-beginner-dark.tmTheme`）**：
+  - `install.sh` 會自動安裝 `~/.codex/themes/cli-beginner-dark.tmTheme` 並將 `~/.codex/config.toml` 的 `theme` 設為 `"cli-beginner-dark"`（為多行複製區塊加上深藍底色與亮青色文字），同時更新 `~/.codex/AGENTS.md` 規定 `📋 ：` 後方的待複製內容一律以反引號包住上色。
 - **共用彩色狀態列（`statusline/`）**：
   - 統一顯示：`[模型] [目前路徑] [Context 已用百分比（達 70% 自動轉紅）] [對話標題]`，配色定義於 `statusline/palette.json`。
   - **Claude Code（`~/.claude/settings.json`）**：

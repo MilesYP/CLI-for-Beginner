@@ -6,5 +6,8 @@
   "path": "#98C379",
   "context": "#5C6370",
   "context_warn": "#E06C75",
-  "thread": "#C678DD"
+  "thread": "#C678DD",
+  "perm_ask": "#E06C75",
+  "perm_safe": "#E5C07B",
+  "perm_full": "#98C379"
 }

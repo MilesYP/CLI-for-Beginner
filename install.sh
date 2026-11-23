@@ -10,7 +10,7 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 APP="${HERDR_APP_HOME:-$HOME/.config/herdr-app}"
 STAMP=$(date +%Y%m%d-%H%M%S)
 BACKUP="$HERE/backups/$STAMP"
-MODS="better-sidebar better-tabs over9k-usage over9k-todos agent-plans cria-files-extended cria-file-preview"
+MODS="better-sidebar better-tabs over9k-usage over9k-todos agent-plans cria-files-extended cria-file-preview custom-status"
 LAYOUT=estro9k
 STATUSLINE="$HOME/.claude/statusline-cat.sh"
 CACHE_SCRIPT="$HOME/.claude/herdr-usage-cache.sh"
@@ -44,13 +44,21 @@ cp "$HERE/layouts/$LAYOUT.json" "$APP/layouts/$LAYOUT.json"
 echo "  $LAYOUT"
 
 if [ "${1:-}" != "--no-statusline" ]; then
-  echo "== 三套 CLI 共用狀態列 (~/.config/ai-statusline)"
+  echo "== 三套 CLI 共用狀態列與權限守門員 (~/.config/ai-statusline)"
   mkdir -p "$HOME/.config/ai-statusline"
-  [ -f "$HOME/.config/ai-statusline/statusline.sh" ] || cp "$HERE/statusline/ai-statusline.sh" "$HOME/.config/ai-statusline/statusline.sh"
-  [ -f "$HOME/.config/ai-statusline/palette.json" ] || cp "$HERE/statusline/palette.json" "$HOME/.config/ai-statusline/palette.json"
-  [ -f "$HOME/.config/ai-statusline/codex_statusline.py" ] || cp "$HERE/statusline/codex_statusline.py" "$HOME/.config/ai-statusline/codex_statusline.py"
-  chmod +x "$HOME/.config/ai-statusline/statusline.sh" 2>/dev/null || true
-  echo "  ~/.config/ai-statusline/ (statusline.sh, palette.json, codex_statusline.py)"
+  for f in "ai-statusline.sh:statusline.sh" "palette.json:palette.json" "codex_statusline.py:codex_statusline.py" "permission-guard.py:permission-guard.py"; do
+    src="${f%%:*}"
+    dst="${f##*:}"
+    cp "$HERE/statusline/$src" "$HOME/.config/ai-statusline/$dst.tmp"
+    chmod +x "$HOME/.config/ai-statusline/$dst.tmp" 2>/dev/null || true
+    mv "$HOME/.config/ai-statusline/$dst.tmp" "$HOME/.config/ai-statusline/$dst"
+  done
+  backup "$HOME/.claude/settings.json"
+  backup "$HOME/.codex/config.toml"
+  backup "$HOME/.codex/AGENTS.md"
+  python3 "$HOME/.config/ai-statusline/permission-guard.py" connect "$HERE/statusline" >/dev/null 2>&1 || true
+  echo "  ~/.config/ai-statusline/ (statusline.sh, palette.json, codex_statusline.py, permission-guard.py)"
+  echo "  已連接三套 CLI 權限開關 Hook（預設：🔒 每次都問）與 Codex 深色複製標色設定"
 
   echo "== Claude 用量快取"
   mkdir -p "$HOME/.claude"

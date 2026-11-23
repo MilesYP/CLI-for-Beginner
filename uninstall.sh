@@ -11,7 +11,7 @@ MARK="# herdr-setup: usage cache"
 # 先切回內建 main，避免正在顯示的 layout 消失
 herdr-app do layout.switch '{"name":"main"}' >/dev/null 2>&1 || true
 
-for m in better-sidebar better-tabs over9k-usage over9k-todos agent-plans cria-files-extended cria-file-preview; do
+for m in better-sidebar better-tabs over9k-usage over9k-todos agent-plans cria-files-extended cria-file-preview custom-status; do
   [ -d "$APP/mods/$m" ] && rm -rf "$APP/mods/$m" && echo "已移除 mod $m"
 done
 [ -f "$APP/layouts/$LAYOUT.json" ] && rm -f "$APP/layouts/$LAYOUT.json" && echo "已移除 layout $LAYOUT"

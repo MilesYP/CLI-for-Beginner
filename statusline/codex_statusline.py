@@ -2,6 +2,7 @@
 
 import json
 import math
+import os
 from pathlib import Path
 import re
 import sys
@@ -9,10 +10,11 @@ import sys
 
 URI = "ui://ai-statusline/footer"
 PALETTE = Path(__file__).with_name("palette.json")
+PERMS_FILE = Path.home() / ".cache" / "over9k" / "usage" / "permissions.json"
 TOOL = {
     "name": "statusline",
     "title": "AI 狀態列",
-    "description": "Show the current model, workspace, context usage, and conversation title.",
+    "description": "Show the current model, workspace, context usage, permission mode, and conversation title.",
     "inputSchema": {"type": "object", "properties": {}},
     "_meta": {
         "openai/ui": {"entrypoints": [{"type": "statusline", "resourceUri": URI}]}
@@ -36,6 +38,26 @@ def block(value, background, foreground):
     }
 
 
+def resolve_perm_mode(raw_cwd):
+    try:
+        data = json.loads(PERMS_FILE.read_text(encoding="utf-8"))
+        sessions = data.get("sessions") or {}
+        tid = os.environ.get("HC_TERMINAL_ID") or ""
+        if tid and sessions.get(tid) in ("ask", "safe", "full"):
+            return sessions[tid]
+        if raw_cwd:
+            real_cwd = os.path.realpath(raw_cwd)
+            for k in (f"cwd:{real_cwd}", f"cwd:{raw_cwd}"):
+                if sessions.get(k) in ("ask", "safe", "full"):
+                    return sessions[k]
+        d = data.get("default")
+        if d in ("ask", "safe", "full"):
+            return d
+    except Exception:
+        pass
+    return "ask"
+
+
 def render(state):
     """Build the footer from the displayed thread and the shared palette."""
     colors = json.loads(PALETTE.read_text(encoding="utf-8"))
@@ -43,11 +65,13 @@ def render(state):
     model = thread.get("model") or {}
     name = clean(model.get("display_name")) or "Codex"
     level = clean(model.get("reasoning_level"))
-    cwd = clean((thread.get("workspace") or {}).get("cwd"))
+    raw_cwd = clean((thread.get("workspace") or {}).get("cwd"))
+    cwd = raw_cwd
     home = str(Path.home())
     if cwd == home or cwd.startswith(home + "/"):
         cwd = "~" + cwd[len(home):]
     dark = colors["fg_dark"]
+    light = colors["fg_light"]
     children = [block(f"{name} {level}" if level else name, colors["model"], dark)]
     if cwd:
         children.append(block(cwd, colors["path"], dark))
@@ -55,7 +79,16 @@ def render(state):
     percent = context.get("used_percentage")
     if type(percent) in (int, float) and math.isfinite(percent):
         color = "context_warn" if percent >= colors["threshold"] else "context"
-        children.append(block(f"Context {math.floor(percent)}% used", colors[color], colors["fg_light"]))
+        children.append(block(f"Context {math.floor(percent)}% used", colors[color], light))
+
+    perm = resolve_perm_mode(raw_cwd)
+    if perm == "full":
+        children.append(block("🔓 最高權限", colors.get("perm_full", "#98C379"), dark))
+    elif perm == "safe":
+        children.append(block("🛡 刪改才問", colors.get("perm_safe", "#E5C07B"), dark))
+    else:
+        children.append(block("🔒 每次都問", colors.get("perm_ask", "#E06C75"), light))
+
     title = clean(thread.get("name"))
     if title:
         children.append(block(title, colors["thread"], dark))
