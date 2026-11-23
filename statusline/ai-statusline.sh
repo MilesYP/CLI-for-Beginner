@@ -10,11 +10,16 @@ fi
 
 cwd=$(printf '%s' "$input" | jq -r '.workspace.current_dir // .cwd // empty' 2>/dev/null)
 perm_mode="ask"
+fallback_title=""
 if [ -f "$guard" ]; then
     perm_mode=$(python3 "$guard" get "${HC_TERMINAL_ID-}" "$cwd" 2>/dev/null || printf 'ask')
+    if [ "${1-}" = agy ]; then
+        fallback_title=$(printf '%s' "$input" | python3 "$guard" agy-title "${HC_TERMINAL_ID-}" "$cwd" 2>/dev/null || true)
+        [ "$fallback_title" = "Antigravity" ] && fallback_title=""
+    fi
 fi
 
-printf '%s' "$input" | jq -r --arg client "${1-}" --arg home "$HOME" --arg perm "$perm_mode" --slurpfile palette "$palette" '
+printf '%s' "$input" | jq -r --arg client "${1-}" --arg home "$HOME" --arg perm "$perm_mode" --arg fb_title "$fallback_title" --slurpfile palette "$palette" '
     def clean:
         gsub("[[:cntrl:]]"; " ") | sub("^ +"; "") | sub(" +$"; "");
     def rgb:
@@ -34,7 +39,7 @@ printf '%s' "$input" | jq -r --arg client "${1-}" --arg home "$HOME" --arg perm 
            {model: (.model.display_name // .model.id // "Antigravity"),
             used: (if .context_window.context_window_size == 0 then null
                    else .context_window.used_percentage end),
-            title: .conversation_title}
+            title: ((.conversation_title // "") | if length > 0 then . else $fb_title end)}
        else
            {model: (.model.display_name // "Claude"),
             used: .context_window.used_percentage,

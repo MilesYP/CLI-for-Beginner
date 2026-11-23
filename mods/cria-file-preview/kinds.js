@@ -6,6 +6,7 @@ export const VIEWER_OF = {
   md: "markdown", markdown: "markdown", mdx: "markdown",
   html: "html", htm: "html", xhtml: "html",
   pdf: "pdf",
+  pptx: "pptx", ppt: "pptx",
   csv: "table", tsv: "table",
   json: "json",
   png: "image", jpg: "image", jpeg: "image", gif: "image", webp: "image", svg: "image", bmp: "image", tiff: "image", heic: "image",

@@ -14,6 +14,7 @@ Usage:
   permission-guard.py hook <claude|agy|codex-pre|codex-perm>   (reads hook JSON from stdin)
 """
 
+import glob
 import json
 import os
 import re
@@ -21,6 +22,8 @@ import sys
 import time
 
 STATE_PATH = os.path.expanduser("~/.cache/over9k/usage/permissions.json")
+AGY_TITLES_PATH = os.path.expanduser("~/.cache/over9k/usage/agy-titles.json")
+AGY_BRAIN_GLOB = os.path.expanduser("~/.gemini/antigravity-cli/brain/*/.system_generated/logs/transcript.jsonl")
 VALID_MODES = ("ask", "safe", "full")
 DEFAULT_MODE = "ask"
 
@@ -114,6 +117,161 @@ def set_mode(mode, term_id=None, cwd=None):
     state["updated_at"] = int(time.time())
     save_state(state)
     return mode
+
+
+def clean_title_str(raw_str, max_len=28):
+    if not isinstance(raw_str, str):
+        return ""
+    s = re.sub(r"[\x00-\x1f\x7f-\x9f]+", " ", raw_str).strip()
+    if not s or s.lower() == "antigravity":
+        return ""
+    if len(s) > max_len:
+        return s[:max_len].rstrip() + "…"
+    return s
+
+
+def extract_title_and_cwd_from_transcript(tpath):
+    """Extract (first_user_title, latest_user_title, detected_cwd) from an agy transcript.jsonl."""
+    first_title = ""
+    latest_title = ""
+    cwd_counts = {}
+    home = os.path.expanduser("~")
+    ignore_prefixes = (
+        os.path.join(home, ".gemini"),
+        os.path.join(home, ".config"),
+        os.path.join(home, ".claude"),
+        os.path.join(home, ".codex"),
+        os.path.join(home, ".cache"),
+        os.path.join(home, ".local"),
+    )
+    path_re = re.compile(r'(/Users/[^"\'\s\\]+)')
+    req_re = re.compile(r"<USER_REQUEST>\s*(.*?)\s*</USER_REQUEST>", re.S)
+
+    try:
+        with open(tpath, "r", encoding="utf-8", errors="ignore") as f:
+            for idx, line in enumerate(f):
+                if '"USER_INPUT"' in line:
+                    try:
+                        obj = json.loads(line)
+                        content = obj.get("content") or ""
+                        m = req_re.search(content)
+                        text = (m.group(1) if m else content).strip()
+                        # Take the first meaningful line of the user prompt
+                        for row in text.splitlines():
+                            row = row.strip().lstrip("#>-* ")
+                            if row:
+                                t = clean_title_str(row, 28)
+                                if t:
+                                    if not first_title:
+                                        first_title = t
+                                    latest_title = t
+                                break
+                    except Exception:
+                        pass
+                if idx < 150:
+                    for pm in path_re.finditer(line):
+                        p = pm.group(1).rstrip(".,;:)]}")
+                        if any(p.startswith(ip) for ip in ignore_prefixes):
+                            continue
+                        # Normalize to workspace root (e.g. /Users/miles/Developer/<Project> or /Users/miles/Desktop/<Project>)
+                        parts = p.split("/")
+                        if len(parts) >= 5 and parts[1] == "Users" and parts[3] in ("Developer", "Desktop", "Documents", "Projects"):
+                            root = "/".join(parts[:5])
+                            cwd_counts[root] = cwd_counts.get(root, 0) + 1
+    except Exception:
+        pass
+
+    detected_cwd = ""
+    if cwd_counts:
+        detected_cwd = max(cwd_counts.items(), key=lambda kv: kv[1])[0]
+    return first_title or latest_title, latest_title or first_title, detected_cwd
+
+
+def sync_all_agy_titles(payload=None, cwd=None, term_id=None):
+    """Scan active agy transcripts, update ~/.cache/over9k/usage/agy-titles.json, and return the title for (term_id, cwd)."""
+    try:
+        with open(AGY_TITLES_PATH, "r", encoding="utf-8") as f:
+            cache = json.load(f)
+            if not isinstance(cache, dict):
+                cache = {}
+    except Exception:
+        cache = {}
+
+    by_cwd = cache.setdefault("by_cwd", {})
+    by_term = cache.setdefault("by_term", {})
+    by_conv = cache.setdefault("by_conv", {})
+
+    # 1. Check explicit title in stdin payload
+    explicit = ""
+    if isinstance(payload, dict):
+        for k in ("conversation_title", "session_name", "title"):
+            val = clean_title_str(payload.get(k))
+            if val:
+                explicit = val
+                break
+        if not explicit and isinstance(payload.get("conversation"), dict):
+            explicit = clean_title_str(payload["conversation"].get("title"))
+        if not cwd:
+            cwd = (payload.get("workspace") or {}).get("current_dir") or payload.get("cwd") or ""
+
+    # 2. Scan recent transcripts (sorted oldest -> newest so newest wins per cwd)
+    tpaths = sorted(glob.glob(AGY_BRAIN_GLOB), key=lambda p: os.path.getmtime(p))[-20:]
+    newest_unassigned_title = ""
+    for tp in tpaths:
+        conv_id = os.path.basename(os.path.dirname(os.path.dirname(os.path.dirname(tp))))
+        ftitle, _ltitle, det_cwd = extract_title_and_cwd_from_transcript(tp)
+        if not ftitle:
+            continue
+        by_conv[conv_id] = {"title": ftitle, "cwd": det_cwd, "mtime": int(os.path.getmtime(tp))}
+        if det_cwd:
+            by_cwd[det_cwd] = ftitle
+            try:
+                by_cwd[os.path.realpath(det_cwd)] = ftitle
+            except Exception:
+                pass
+        elif time.time() - os.path.getmtime(tp) < 300:
+            newest_unassigned_title = ftitle
+
+    # 3. Resolve best title for current invocation
+    resolved = explicit
+    if not resolved and isinstance(payload, dict):
+        raw_dump = json.dumps(payload)
+        for cid, info in by_conv.items():
+            if cid in raw_dump:
+                resolved = info.get("title") or ""
+                break
+
+    if not resolved and cwd:
+        real_cwd = os.path.realpath(cwd)
+        resolved = by_cwd.get(real_cwd) or by_cwd.get(cwd) or ""
+
+    if not resolved and term_id:
+        resolved = by_term.get(term_id) or ""
+
+    if not resolved and newest_unassigned_title:
+        resolved = newest_unassigned_title
+
+    if resolved:
+        if cwd:
+            by_cwd[cwd] = resolved
+            try:
+                by_cwd[os.path.realpath(cwd)] = resolved
+            except Exception:
+                pass
+        if term_id:
+            by_term[term_id] = resolved
+
+    cache["updated_at"] = int(time.time())
+    try:
+        os.makedirs(os.path.dirname(AGY_TITLES_PATH), exist_ok=True)
+        tmp = f"{AGY_TITLES_PATH}.tmp.{os.getpid()}"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(cache, f, ensure_ascii=False, indent=2)
+        os.replace(tmp, AGY_TITLES_PATH)
+    except Exception:
+        pass
+
+    return resolved
 
 
 def extract_tool_info(payload):
@@ -393,7 +551,25 @@ def main():
         if st.get("default") not in VALID_MODES:
             st["default"] = DEFAULT_MODE
         save_state(st)
+        sync_all_agy_titles()
         print("connected")
+    elif cmd == "agy-title":
+        term = argv[1] if len(argv) > 1 else os.environ.get("HC_TERMINAL_ID", "")
+        cwd = argv[2] if len(argv) > 2 else ""
+        raw = sys.stdin.read() if not sys.stdin.isatty() else ""
+        try:
+            payload = json.loads(raw) if raw.strip() else {}
+        except Exception:
+            payload = {}
+        title = sync_all_agy_titles(payload, cwd, term)
+        print(title or "Antigravity", end="")
+    elif cmd == "sync-titles":
+        sync_all_agy_titles()
+        try:
+            with open(AGY_TITLES_PATH, "r", encoding="utf-8") as f:
+                print(f.read(), end="")
+        except Exception:
+            print("{}")
     else:
         print(DEFAULT_MODE)
 

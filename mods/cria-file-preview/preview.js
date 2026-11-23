@@ -19,7 +19,7 @@ import { systemOf } from "./platform.js";
 const AUTO_FILE = "cria-file-preview.autoFile";
 const AUTO_PANE = "cria-file-preview.autoPane";
 const SIBLING_SCOPE = "cria-file-preview.siblingScope";
-const MEDIA_VIEWERS = new Set(["image", "pdf", "markdown", "html", "audio", "video"]);
+const MEDIA_VIEWERS = new Set(["image", "pdf", "pptx", "markdown", "html", "audio", "video"]);
 
 export class Preview {
   init(_props, cx) {

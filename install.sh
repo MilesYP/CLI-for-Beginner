@@ -80,10 +80,13 @@ if [ "${1:-}" != "--no-statusline" ]; then
   if [ ! -d "$HOME/.gemini/antigravity-cli" ]; then
     echo "  找不到 ~/.gemini/antigravity-cli，略過（Gemini 用量不會顯示）"
   else
-    cp "$HERE/statusline/agy-usage-cache.sh" "$AGY_CACHE_SCRIPT"
-    [ -f "$HOME/.gemini/antigravity-cli/statusline.sh" ] || cp "$HERE/statusline/agy-statusline.sh" "$HOME/.gemini/antigravity-cli/statusline.sh"
-    [ -f "$HOME/.gemini/antigravity-cli/title.sh" ] || cp "$HERE/statusline/agy-title.sh" "$HOME/.gemini/antigravity-cli/title.sh"
-    chmod +x "$HOME/.gemini/antigravity-cli/statusline.sh" "$HOME/.gemini/antigravity-cli/title.sh" "$AGY_CACHE_SCRIPT" 2>/dev/null || true
+    cp "$HERE/statusline/agy-usage-cache.sh" "$AGY_CACHE_SCRIPT.tmp"
+    cp "$HERE/statusline/agy-statusline.sh" "$HOME/.gemini/antigravity-cli/statusline.sh.tmp"
+    cp "$HERE/statusline/agy-title.sh" "$HOME/.gemini/antigravity-cli/title.sh.tmp"
+    chmod +x "$HOME/.gemini/antigravity-cli/statusline.sh.tmp" "$HOME/.gemini/antigravity-cli/title.sh.tmp" "$AGY_CACHE_SCRIPT.tmp" 2>/dev/null || true
+    mv "$AGY_CACHE_SCRIPT.tmp" "$AGY_CACHE_SCRIPT"
+    mv "$HOME/.gemini/antigravity-cli/statusline.sh.tmp" "$HOME/.gemini/antigravity-cli/statusline.sh"
+    mv "$HOME/.gemini/antigravity-cli/title.sh.tmp" "$HOME/.gemini/antigravity-cli/title.sh"
     echo "  $AGY_CACHE_SCRIPT (+ statusline.sh, title.sh)"
     if [ ! -f "$AGY_STATUSLINE" ]; then
       echo "  找不到 $AGY_STATUSLINE（三套 CLI 共用狀態列），略過（Gemini 用量不會顯示）"

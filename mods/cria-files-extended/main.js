@@ -22,7 +22,7 @@ const AUTO_FILE = "cria-file-preview.autoFile";
 const AUTO_PANE = "cria-file-preview.autoPane";
 const AUTO_EXTS = {
   image: new Set(["png", "jpg", "jpeg", "gif", "webp", "svg", "bmp", "tiff", "heic"]),
-  pdf: new Set(["pdf"]),
+  pdf: new Set(["pdf", "pptx", "ppt"]),
   html: new Set(["html", "htm", "xhtml"]),
   md: new Set(["md", "markdown", "mdx"]),
   av: new Set(["mp3", "m4a", "aac", "wav", "aif", "aiff", "flac", "ogg", "oga", "opus", "caf", "alac", "wma", "mp4", "m4v", "mov", "mkv", "webm", "avi"]),
@@ -739,7 +739,7 @@ export default class Files extends View {
         return el.child(v_flex().id("files-auto-filters").w_full().flex_none().flex_shrink_0().px(10).py(6).gap(5).border_b(1).border_color(t.border).bg(t.surface)
           .child(h_flex().w_full().gap(5).items_center()
             .child(chip("image", "圖片"))
-            .child(chip("pdf", "PDF"))
+            .child(chip("pdf", "PDF/PPT"))
             .child(chip("html", "HTML"))
             .child(chip("md", "MD"))
             .child(chip("av", "影音")))

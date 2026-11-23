@@ -8,7 +8,7 @@ const KINDS = {
   data: ["file-braces", "ansi3", "json jsonc json5 yaml yml toml xml plist"],
   config: ["file-cog", "ansi6", "ini cfg conf properties editorconfig"],
   text: ["file-text", "muted", "md mdx markdown txt rst adoc org log"],
-  pdf: ["file-text", "ansi1", "pdf"],
+  pdf: ["file-text", "ansi1", "pdf ppt pptx"],
   table: ["file-spreadsheet", "ansi2", "csv tsv xls xlsx ods parquet"],
   image: ["file-image", "ansi5", "png jpg jpeg gif webp svg ico bmp tif tiff heic avif"],
   video: ["file-video-camera", "ansi5", "mp4 mov mkv webm avi"],

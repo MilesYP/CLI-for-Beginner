@@ -135,13 +135,31 @@ function icon(p, size, color) {
 
 // What a row calls an agent: its tab's title, or failing that its own.
 function agentLabel(paneByTab = new Map(), tabCounts = new Map()) {
-  const tabs = spaces().flatMap((s) => s.tabs);
+  const allSpaces = spaces();
+  const spaceById = new Map(allSpaces.map((s) => [s.id, s]));
+  const tabs = allSpaces.flatMap((s) => s.tabs);
+  const agyTitles = shared("herdr.agy-titles") ?? {};
+  const byTerm = agyTitles.by_term ?? {};
+  const byCwd = agyTitles.by_cwd ?? {};
+
   return (a) => {
     const tab = tabs.find((candidate) => candidate.id === a.tab);
-    if (!tab) return a.title || a.program?.name || "";
-    const pane = paneByTab.get(tab.id);
-    const many = tabCounts.get(tab.id) > 1;
-    return title(many ? { ...tab, named: false } : tab, many ? a : pane);
+    const pane = tab ? paneByTab.get(tab.id) : null;
+    const raw = !tab
+      ? (a.title || a.program?.name || "")
+      : (() => {
+          const many = tabCounts.get(tab.id) > 1;
+          return title(many ? { ...tab, named: false } : tab, many ? a : pane);
+        })();
+
+    const progName = a.program?.name || pane?.program?.name || "";
+    if (!raw || raw === "Antigravity" || raw === progName) {
+      const sp = spaceById.get(a.space);
+      const cwd = pane?.cwd || a.cwd || sp?.folder || "";
+      const fallback = byTerm[a.address] || (cwd && byCwd[cwd]) || "";
+      if (fallback && fallback !== "Antigravity") return fallback;
+    }
+    return raw;
   };
 }
 
@@ -870,8 +888,9 @@ export class Agents {
   // `agent_name: "title"` the terminal's live title, what the agent says it's doing.
   // Either falls back to the other. The icon says which agent it is.
   rowName(a, label) {
-    const tab = a.tab_name || label;
-    return this.nameBy === "title" ? clean(a.title) || tab : tab;
+    const tab = (a.tab_name && a.tab_name !== "Antigravity") ? a.tab_name : (label || a.tab_name);
+    const live = clean(a.title);
+    return this.nameBy === "title" ? ((live && live !== "Antigravity") ? live : tab) : tab;
   }
 
   // The row's name, then quietly its space; nested under its space's row, its program.

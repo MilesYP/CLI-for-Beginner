@@ -16,7 +16,8 @@ import image from "./image.js";
 import json from "./json.js";
 import markdown from "./markdown.js";
 import pdf from "./pdf.js";
+import pptx from "./pptx.js";
 import table from "./table.js";
 import video from "./video.js";
 
-export const VIEWERS = { audio, code, html, image, json, markdown, pdf, table, video };
+export const VIEWERS = { audio, code, html, image, json, markdown, pdf, pptx, table, video };

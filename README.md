@@ -72,8 +72,9 @@ sh uninstall.sh               # 切回 main 並移除；資料檔保留
 - **鍵盤方向鍵切圖＋觸控板兩指縮放**：
   - **鍵盤切圖**：預覽框或右側 `Files` 有焦點時，按鍵盤 **`←` / `→` / `↑` / `↓`**（或 `[` / `]`）直接切換上下一張圖片；按 **`Backspace`** 退回上一張看過的圖；點預覽框頂部 **`All` / `Media`** 可切換「全部檔案」或「只看圖片／文件／影音」。
   - **觸控板縮放**：游標移到圖片或 PDF 上，直接用**觸控板兩指張開／捏合（Pinch）**（或 `Cmd + 滾輪`）即可縮放；放大後用兩指滑動或滑鼠拖曳平移，點 **`Fit`** 恢復適應視窗。
-- **`Auto` 自動預覽**：
-  - 點 `Files` 右上角 **`Auto`** 可展開類型篩選列（圖片／PDF／HTML／MD／影音／略過系統MD），當 agent 產出新檔案時會自動在並排預覽框更新。
+- **`Auto` 自動預覽與 PPT 簡報預覽（`.pptx` / `.ppt`）**：
+  - 點 `Files` 右上角 **`Auto`** 可展開類型篩選列（圖片／PDF/PPT／HTML／MD／影音／略過系統MD），當 agent 產出新檔案時會自動在並排預覽框更新。
+  - **PPT / PPTX 簡報預覽器（`cria-file-preview/viewers/pptx.js`）**：點擊 `.pptx` 或 `.ppt` 即可在並排預覽框以 **16:9 投影片卡片**預覽（自動提取標題、多層級條列重點、表格、內嵌圖片與講者備忘稿），支援 **`單頁 | 連續 | 大綱`** 三種模式、`‹ 1 / N ›` 上下頁切換、觸控板兩指捏合縮放，以及 **`Open in App ↗`** 一鍵以 Keynote / PowerPoint 開啟。
 
 ### 2. 左下三合一用量與 Claude Credit 剩餘額度（`over9k-usage`）
 - **Claude `Pro`**：由 `~/.claude/statusline-cat.sh` 結尾呼叫 `~/.claude/herdr-usage-cache.sh` 寫入 `~/.cache/over9k/usage/claude.json`；支援讀取 `organizationType` 顯示 `Pro` 標籤，並根據 `~/.cache/over9k/usage/claude-credit.json` 基準點與 `api-cost.py` 追蹤 **`Credit Est.`** 預估剩餘額度（點擊可展開切換 1d / 1w / 2w / 30d 與每日長條圖）。

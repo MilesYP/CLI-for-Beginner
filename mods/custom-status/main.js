@@ -10,6 +10,7 @@ import { h_flex } from "gpui-base";
 import { spaces, agents, panes, focused, theme, run, window, keys, exec, home, shared, setShared, notify, checking } from "herdr";
 
 const PERM_SHARED = "herdr.permissions";
+const AGY_TITLES_SHARED = "herdr.agy-titles";
 const GUARD_REL = ".config/ai-statusline/permission-guard.py";
 
 const OPTIONS = [
@@ -23,10 +24,28 @@ export default class CustomStatus extends View {
     this.loaded = false;
     if (!checking()) {
       this.syncFromDisk(cx);
+      cx.timer.every(6000, (cx) => this.syncAgyTitles(cx));
     }
   }
 
+  syncAgyTitles(cx) {
+    const guard = `${home()}/${GUARD_REL}`;
+    cx.spawn(async (cx) => {
+      const r = await exec("python3", [guard, "sync-titles"]).catch(() => null);
+      if (r?.code === 0 && r.stdout.trim()) {
+        try {
+          const parsed = JSON.parse(r.stdout);
+          if (parsed && typeof parsed === "object") {
+            setShared(AGY_TITLES_SHARED, parsed);
+            cx.notify();
+          }
+        } catch {}
+      }
+    });
+  }
+
   syncFromDisk(cx) {
+    this.syncAgyTitles(cx);
     const file = `${home()}/.cache/over9k/usage/permissions.json`;
     cx.spawn(async (cx) => {
       const r = await exec("cat", [file]).catch(() => null);
