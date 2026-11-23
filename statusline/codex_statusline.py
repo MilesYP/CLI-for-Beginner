@@ -83,11 +83,11 @@ def render(state):
 
     perm = resolve_perm_mode(raw_cwd)
     if perm == "full":
-        children.append(block("🚀 最高權限", colors.get("perm_full", "#98C379"), dark))
+        children.append(block("🚀 最高權限", colors.get("perm_full", "#EA580C"), light))
     elif perm == "safe":
-        children.append(block("🚧 刪改才問", colors.get("perm_safe", "#E5C07B"), dark))
+        children.append(block("🚧 刪改才問", colors.get("perm_safe", "#2563EB"), light))
     else:
-        children.append(block("💬 每次都問", colors.get("perm_ask", "#E06C75"), light))
+        children.append(block("💬 每次都問", colors.get("perm_ask", "#3B4252"), light))
 
     title = clean(thread.get("name"))
     if title:

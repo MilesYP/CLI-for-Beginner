@@ -13,9 +13,9 @@ const PERM_SHARED = "herdr.permissions";
 const GUARD_REL = ".config/ai-statusline/permission-guard.py";
 
 const OPTIONS = [
-  { id: "ask",  label: "💬 每次都問", bg: "#E06C75", fg: "#FFFFFF", tip: "嚴格模式（預設）：寫入、修改檔案或執行指令前每次都會詢問你" },
-  { id: "safe", label: "🚧 刪改才問", bg: "#E5C07B", fg: "#1E2127", tip: "安全防護：一般讀寫與測試自動放行；只有刪除檔案或強制覆蓋時才詢問你" },
-  { id: "full", label: "🚀 最高權限", bg: "#98C379", fg: "#1E2127", tip: "最高權限：當前對話 session 自動放行所有讀寫與指令" },
+  { id: "ask",  label: "💬 每次都問", bg: "#3B4252", fg: "#FFFFFF", tip: "嚴格模式（預設）：寫入、修改檔案或執行指令前每次都會詢問你" },
+  { id: "safe", label: "🚧 刪改才問", bg: "#2563EB", fg: "#FFFFFF", tip: "安全防護：一般讀寫與測試自動放行；只有刪除檔案或強制覆蓋時才詢問你" },
+  { id: "full", label: "🚀 最高權限", bg: "#EA580C", fg: "#FFFFFF", tip: "最高權限：當前對話 session 自動放行所有讀寫與指令" },
 ];
 
 export default class CustomStatus extends View {

@@ -84,9 +84,9 @@ sh uninstall.sh               # 切回 main 並移除；資料檔保留
 
 - **底部狀態列三段權限開關（`mods/custom-status/` ＋ `statusline/permission-guard.py`）**：
   - 在 Herdr 視窗最底部狀態列右側提供針對**當前對話框 session** 獨立生效的三顆滑鼠點擊按鈕，並與每個 AI 終端機內的彩色狀態列即時連動（狀態儲存於 `~/.cache/over9k/usage/permissions.json`）：
-    1. **`💬 每次都問`（預設，紅底）**：寫入、修改檔案或執行終端機指令前，每次都會詢問你確認（純讀檔自動放行）。
-    2. **`🚧 刪改才問`（黃底）**：一般讀寫、改程式碼與跑測試自動放行；**只有遇到刪除檔案**（`rm`、`rmdir`、`unlink`、`trash`）、**覆蓋既有檔案**或**危險強制操作**（`mv -f`、`cp -f`、`git reset --hard`、`git clean`、`git checkout --`、`git push -f`）時才攔截並詢問你。
-    3. **`🚀 最高權限`（綠底）**：當前對話 session 自動放行所有工具與指令。
+    1. **`💬 每次都問`（預設，深石板藍底 `#3B4252`）**：寫入、修改檔案或執行終端機指令前，每次都會詢問你確認（純讀檔自動放行）。
+    2. **`🚧 刪改才問`（皇家亮藍底 `#2563EB`）**：一般讀寫、改程式碼與跑測試自動放行；**只有遇到刪除檔案**（`rm`、`rmdir`、`unlink`、`trash`）、**覆蓋既有檔案**或**危險強制操作**（`mv -f`、`cp -f`、`git reset --hard`、`git clean`、`git checkout --`、`git push -f`）時才攔截並詢問你。
+    3. **`🚀 最高權限`（烈焰橘紅底 `#EA580C`）**：當前對話 session 自動放行所有工具與指令。
 - **左側 Agent 列右鍵選單「恢復成未讀樣式（藍點）」（`mods/better-sidebar/views/agents.js`）**：
   - 在左側 `Agents` 清單中對任一 Agent 按**滑鼠右鍵**會彈出下拉選單，可點選 **`標記為未讀（顯示藍點）`** 將已讀的空心灰圓環恢復為未讀實心藍點與亮白標題（並提供 **`標記為已讀（清除藍點）`** 與 **`釘選到最上方 / 取消釘選`**）；下次左鍵點擊該 Agent 查看對話時會自動恢復為已讀。
 - **Codex 複製內容自動標色與深色主題（`statusline/codex-AGENTS.md` ＋ `cli-beginner-dark.tmTheme`）**：
