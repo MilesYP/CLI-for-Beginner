@@ -41,11 +41,11 @@ printf '%s' "$input" | jq -r --arg client "${1-}" --arg home "$HOME" --arg perm 
             title: .session_name}
        end) as $status
     | (if $perm == "full" then
-           ("🔓 最高權限" | block($colors.perm_full // "#98C379"; $colors.fg_dark))
+           ("🚀 最高權限" | block($colors.perm_full // "#98C379"; $colors.fg_dark))
        elif $perm == "safe" then
-           ("🛡 刪改才問" | block($colors.perm_safe // "#E5C07B"; $colors.fg_dark))
+           ("🚧 刪改才問" | block($colors.perm_safe // "#E5C07B"; $colors.fg_dark))
        else
-           ("🔒 每次都問" | block($colors.perm_ask // "#E06C75"; $colors.fg_light))
+           ("💬 每次都問" | block($colors.perm_ask // "#E06C75"; $colors.fg_light))
        end) as $perm_block
     | [
         ($status.model | clean | block($colors.model; $colors.fg_dark)),

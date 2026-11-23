@@ -2,10 +2,10 @@
 """Unified permission mode manager and PreToolUse / PermissionRequest hook for Claude Code, agy, and Codex.
 
 Modes (per Herdr terminal session, default = "ask"):
-  - "ask"  (🔒 每次都問): Ask before any file write/edit or shell command execution.
-  - "safe" (🛡 刪改才問): Auto-allow normal reads/edits/commands; ask ONLY on file deletion,
+  - "ask"  (💬 每次都問): Ask before any file write/edit or shell command execution.
+  - "safe" (🚧 刪改才問): Auto-allow normal reads/edits/commands; ask ONLY on file deletion,
                          forced overwrite of existing files, or destructive git/system commands.
-  - "full" (🔓 最高權限): Auto-allow tool executions for the current session.
+  - "full" (🚀 最高權限): Auto-allow tool executions for the current session.
 
 State file: ~/.cache/over9k/usage/permissions.json
 Usage:
@@ -185,7 +185,7 @@ def handle_hook(client):
             if destructive:
                 print(json.dumps({
                     "decision": "force_ask",
-                    "reason": f"🛡 刪改才問模式：{reason}",
+                    "reason": f"🚧 刪改才問模式：{reason}",
                 }, ensure_ascii=False))
             else:
                 print(json.dumps({"decision": "allow"}))
@@ -196,7 +196,7 @@ def handle_hook(client):
         else:
             print(json.dumps({
                 "decision": "force_ask",
-                "reason": "🔒 每次都問模式：請確認是否執行此操作",
+                "reason": "💬 每次都問模式：請確認是否執行此操作",
             }, ensure_ascii=False))
         return
 
@@ -213,7 +213,7 @@ def handle_hook(client):
             return
         if mode == "safe":
             if destructive:
-                out("ask", f"🛡 刪改才問模式：{reason}")
+                out("ask", f"🚧 刪改才問模式：{reason}")
             else:
                 out("allow")
             return
@@ -221,7 +221,7 @@ def handle_hook(client):
         if tool_name in READONLY_TOOLS:
             out("allow")
         else:
-            out("ask", "🔒 每次都問模式：請確認是否執行此操作")
+            out("ask", "💬 每次都問模式：請確認是否執行此操作")
         return
 
     if client == "codex-perm":

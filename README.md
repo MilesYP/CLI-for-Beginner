@@ -84,9 +84,11 @@ sh uninstall.sh               # 切回 main 並移除；資料檔保留
 
 - **底部狀態列三段權限開關（`mods/custom-status/` ＋ `statusline/permission-guard.py`）**：
   - 在 Herdr 視窗最底部狀態列右側提供針對**當前對話框 session** 獨立生效的三顆滑鼠點擊按鈕，並與每個 AI 終端機內的彩色狀態列即時連動（狀態儲存於 `~/.cache/over9k/usage/permissions.json`）：
-    1. **`🔒 每次都問`（預設，紅底）**：寫入、修改檔案或執行終端機指令前，每次都會詢問你確認（純讀檔自動放行）。
-    2. **`🛡 刪改才問`（黃底）**：一般讀寫、改程式碼與跑測試自動放行；**只有遇到刪除檔案**（`rm`、`rmdir`、`unlink`、`trash`）、**覆蓋既有檔案**或**危險強制操作**（`mv -f`、`cp -f`、`git reset --hard`、`git clean`、`git checkout --`、`git push -f`）時才攔截並詢問你。
-    3. **`🔓 最高權限`（綠底）**：當前對話 session 自動放行所有工具與指令。
+    1. **`💬 每次都問`（預設，紅底）**：寫入、修改檔案或執行終端機指令前，每次都會詢問你確認（純讀檔自動放行）。
+    2. **`🚧 刪改才問`（黃底）**：一般讀寫、改程式碼與跑測試自動放行；**只有遇到刪除檔案**（`rm`、`rmdir`、`unlink`、`trash`）、**覆蓋既有檔案**或**危險強制操作**（`mv -f`、`cp -f`、`git reset --hard`、`git clean`、`git checkout --`、`git push -f`）時才攔截並詢問你。
+    3. **`🚀 最高權限`（綠底）**：當前對話 session 自動放行所有工具與指令。
+- **左側 Agent 列右鍵選單「恢復成未讀樣式（藍點）」（`mods/better-sidebar/views/agents.js`）**：
+  - 在左側 `Agents` 清單中對任一 Agent 按**滑鼠右鍵**會彈出下拉選單，可點選 **`標記為未讀（顯示藍點）`** 將已讀的空心灰圓環恢復為未讀實心藍點與亮白標題（並提供 **`標記為已讀（清除藍點）`** 與 **`釘選到最上方 / 取消釘選`**）；下次左鍵點擊該 Agent 查看對話時會自動恢復為已讀。
 - **Codex 複製內容自動標色與深色主題（`statusline/codex-AGENTS.md` ＋ `cli-beginner-dark.tmTheme`）**：
   - `install.sh` 會自動安裝 `~/.codex/themes/cli-beginner-dark.tmTheme` 並將 `~/.codex/config.toml` 的 `theme` 設為 `"cli-beginner-dark"`（為多行複製區塊加上深藍底色與亮青色文字），同時更新 `~/.codex/AGENTS.md` 規定 `📋 ：` 後方的待複製內容一律以反引號包住上色。
 - **共用彩色狀態列（`statusline/`）**：
@@ -140,14 +142,14 @@ sh uninstall.sh               # 切回 main 並移除；資料檔保留
 
 | repo | commit | 取用內容 | 授權 |
 |---|---|---|---|
-| github.com/munza/herdr-mods | `f3e7881`（2026-11-23） | `better-sidebar/mods/better-sidebar`、`better-tabs/mods/better-tabs`（未修改） | `mods/LICENSE-herdr-mods` |
+| github.com/munza/herdr-mods | `f3e7881`（2026-11-23） | `better-sidebar`（**已客製**：Agent 列右鍵下拉選單標記未讀藍點／已讀／釘選）、`better-tabs`（未修改） | `mods/LICENSE-herdr-mods` |
 | github.com/herunan/herdr-over9k | `193e9cc`（2026-11-21） | `over9k-usage`（**已深度客製**：Claude `Pro` 標籤與 `Credit Est.` 剩餘額度追蹤）、`over9k-todos`（未修改） | `mods/LICENSE-herdr-over9k` |
 | github.com/dendenlarin/herdr-agent-plans | `b48d853`（2026-11-20） | `mods/agent-plans`（未修改） | `mods/LICENSE-herdr-agent-plans` |
 | github.com/gsydler/herdr-cria | `6cff06a`（2026-11-23） | `cria-files-extended`（**已深度客製**：並排／分頁切換、自動跟隨預覽檔目錄＋高亮＋`↑`/`⌂` 導覽、方向鍵切檔、`Auto` 自動預覽篩選 UI）、`cria-file-preview`（**已深度客製**：同分頁並排共用預覽框原地換檔、`Cmd+點擊` 含 `file://` 連結攔截、`All`/`Media` 與四方向鍵切檔、觸控板兩指捏合 `on_pinch` 縮放） | `mods/LICENSE-herdr-cria` |
 | github.com/jjongkwann/herdr-files-plus | `7563016`（2026-11-23） | HTML 結構預覽＋瀏覽器外開、Markdown Mermaid 離線渲染（整合進 `cria-file-preview`） | `mods/LICENSE-herdr-files-plus-jjong` |
 | github.com/ondrapopik/herdr-files-plus | `a21720e`（2026-11-23） | 音訊內嵌播放條（`ffplay`）與影片外開邏輯（整合進 `cria-file-preview`） | `mods/LICENSE-herdr-files-plus-ondra` |
 
-> ⚠️ **防覆蓋提醒**：`cria-files-extended`、`cria-file-preview` 與 `over9k-usage` 均包含大量針對使用習慣的客製化功能，**不可直接拿上游 repo 原版覆蓋**。未修改的 4 個 mod（`better-sidebar`、`better-tabs`、`over9k-todos`、`agent-plans`）若需更新，可下載對應資料夾覆蓋後執行 `sh install.sh`。
+> ⚠️ **防覆蓋提醒**：`cria-files-extended`、`cria-file-preview`、`over9k-usage`、`better-sidebar` 與 `custom-status` 均包含針對使用習慣的客製化功能，**不可直接拿上游 repo 原版覆蓋**。未修改的 3 個 mod（`better-tabs`、`over9k-todos`、`agent-plans`）若需更新，可下載對應資料夾覆蓋後執行 `sh install.sh`。
 
 ## 資料夾
 

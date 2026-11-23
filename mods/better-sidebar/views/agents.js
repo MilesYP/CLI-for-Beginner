@@ -2,7 +2,7 @@
 // name prefix. Agents in grouped or priority views; parents take their most urgent sub-agent's place.
 
 import { div, image, svg } from "gpui-kit";
-import { v_flex, h_flex } from "gpui-base";
+import { v_flex, h_flex, Popup } from "gpui-base";
 import {
   agents,
   terminals,
@@ -180,6 +180,15 @@ export class Agents {
     if (!Array.isArray(this.pendingPins)) this.pendingPins = [];
     this.migratingPins = new Set();
     this.nameBy = DEFAULT_SETTINGS.agent_name;
+    this.menu = null;
+    this.pressed = null;
+    try {
+      const savedUnread = JSON.parse(localStorage.getItem("agents.unread") ?? "[]");
+      this.unread = new Set(Array.isArray(savedUnread) ? savedUnread : []);
+    } catch {
+      this.unread = new Set();
+    }
+    this.forceRead = new Set();
     cx.timer.every(30000, (cx) => cx.notify());
     // The spaces view reports problems with the settings; this one only needs the name.
     cx.spawn(async (cx) => {
@@ -397,9 +406,12 @@ export class Agents {
       : view.groups.flatMap((group, index) => this.groupRows(group, index, view, t));
 
     return v_flex()
+      .id("ag-panel-root")
+      .relative()
       .size_full()
       .min_h(0)
       .bg(t.chrome)
+      .on_mouse_down("right", (e, cx) => this.openContextMenu(e, cx))
       // Under the lists view's tabs, the tab bar's space divides it instead.
       .when(opts.heading !== false, (el) => el.border_t(1).border_color(t.border))
       .text_size(TEXT.body)
@@ -415,7 +427,122 @@ export class Agents {
           .mode("always")
           .children(rows),
       )
-      .when(view.collapsed, (el) => el.child(this.expandRow(t)));
+      .when(view.collapsed, (el) => el.child(this.expandRow(t)))
+      .when(Boolean(this.menu), (el) =>
+        el.child(
+          Popup.new("ag-ctx-menu-anchor", div().size(0))
+            .absolute()
+            .left(this.menu.x)
+            .top(this.menu.y)
+            .anchor("top_left")
+            .content(this.contextMenuView(t)),
+        ),
+      );
+  }
+
+  saveUnread() {
+    try {
+      localStorage.setItem("agents.unread", JSON.stringify([...this.unread]));
+    } catch {}
+    setShared("better-sidebar.unread", [...this.unread]);
+  }
+
+  setUnread(address, flag, cx) {
+    if (flag) {
+      this.unread.add(address);
+      this.forceRead.delete(address);
+    } else {
+      this.unread.delete(address);
+      this.forceRead.add(address);
+    }
+    this.saveUnread();
+    this.menu = null;
+    if (cx) cx.notify();
+  }
+
+  clearUnreadOnVisit(a, cx) {
+    let changed = false;
+    if (this.unread.delete(a.address)) {
+      this.saveUnread();
+      changed = true;
+    }
+    if (this.forceRead.delete(a.address)) changed = true;
+    if (this.menu) {
+      this.menu = null;
+      changed = true;
+    }
+    if (changed && cx) cx.notify();
+  }
+
+  openContextMenu(e, cx) {
+    if (!this.pressed) return;
+    const a = this.pressed;
+    this.pressed = null;
+    const x = Math.max(8, Math.min((e.local_position?.x ?? 16), 140));
+    const y = Math.max(8, (e.local_position?.y ?? 24));
+    this.menu = { agent: a, x, y };
+    cx.notify();
+  }
+
+  closeContextMenu(cx) {
+    if (!this.menu) return;
+    this.menu = null;
+    cx.notify();
+  }
+
+  contextMenuView(t) {
+    const a = this.menu?.agent;
+    if (!a) return div();
+    const isUnread = a.status === "done" || this.unread.has(a.address);
+    const pinned = Boolean(a.pinned);
+    const item = (id, dotColor, label, onClick) =>
+      h_flex()
+        .id(id)
+        .h(30)
+        .px(10)
+        .gap(8)
+        .rounded(7)
+        .items_center()
+        .cursor_pointer()
+        .text_color(t.foreground)
+        .hover((s) => s.bg(t.hover))
+        .on_click((_e, cx) => {
+          cx.stop_propagation();
+          onClick(cx);
+        })
+        .child(
+          dotColor === "ring"
+            ? div().size(7).rounded(4).border(1.5).border_color(t.idle ?? t.dim)
+            : dotColor === "pin"
+              ? Icon(pinned ? "pin-off" : "pin", 13).text_color(t.muted)
+              : div().size(7).rounded(4).bg(dotColor),
+        )
+        .child(div().flex_1().truncate().child(label));
+
+    return v_flex()
+      .id("ag-ctx-menu")
+      .w(196)
+      .p(5)
+      .gap(2)
+      .rounded(10)
+      .bg(t.popover)
+      .border_1()
+      .border_color(t.border)
+      .shadow_lg()
+      .text_size(12.5)
+      .on_mouse_down_out((_e, cx) => this.closeContextMenu(cx))
+      .child(
+        !isUnread
+          ? item("ag-ctx-unread", t.done, "標記為未讀（顯示藍點）", (cx) => this.setUnread(a.address, true, cx))
+          : item("ag-ctx-read", "ring", "標記為已讀（清除藍點）", (cx) => this.setUnread(a.address, false, cx)),
+      )
+      .child(div().mx(6).my(2).h(1).bg(t.border))
+      .child(
+        item("ag-ctx-pin", "pin", pinned ? "取消釘選" : "釘選到最上方", (cx) => {
+          run("terminal.pin", { terminal: a.address, pinned: !pinned });
+          this.closeContextMenu(cx);
+        }),
+      );
   }
 
   // ── What to show ──────────────────────────────────────────────────────────
@@ -425,7 +552,23 @@ export class Agents {
     const sort = sortOf();
     const all = terminals();
     const now = Date.now();
-    const unordered = agents();
+    const rawAgents = agents();
+    let unreadDirty = false;
+    const unordered = rawAgents.map((a) => {
+      if (a.status === "working" || a.status === "blocked") {
+        if (this.unread.delete(a.address)) unreadDirty = true;
+        this.forceRead.delete(a.address);
+        return a;
+      }
+      if (this.unread.has(a.address) && a.status === "idle") {
+        return { ...a, status: "done", manualUnread: true };
+      }
+      if (this.forceRead.has(a.address) && a.status === "done") {
+        return { ...a, status: "idle" };
+      }
+      return a;
+    });
+    if (unreadDirty) this.saveUnread();
     this.listed = new Map(unordered.map((a) => [a.address, a.status]));
     this.track(unordered, now);
     this.migratePins(all);
@@ -588,7 +731,13 @@ export class Agents {
       .items_center()
       .gap(4)
       .hover((s) => s.bg(t.hover))
-      .on_click(() => run("pane.focus", { pane: a.pane }))
+      .on_mouse_down("right", () => {
+        this.pressed = a;
+      })
+      .on_click((_e, cx) => {
+        this.clearUnreadOnVisit(a, cx);
+        run("pane.focus", { pane: a.pane });
+      })
       .child(
         div()
           .flex_1()
@@ -630,7 +779,13 @@ export class Agents {
         else if (hovered) this.hovered = null;
         cx.notify();
       })
-      .on_click(() => run("pane.focus", { pane: a.pane }))
+      .on_mouse_down("right", () => {
+        this.pressed = a;
+      })
+      .on_click((_e, cx) => {
+        this.clearUnreadOnVisit(a, cx);
+        run("pane.focus", { pane: a.pane });
+      })
       .when(Boolean(pic), (el) => el.child(this.agentIcon(a, pic, subs)))
       .child(this.agentName(a, view, t))
       .when(Boolean(machine), (el) =>
