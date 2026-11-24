@@ -29,7 +29,8 @@ if not os.path.isfile(src):
 
 mtime = int(os.path.getmtime(src))
 os.makedirs(cache_dir, exist_ok=True)
-meta_path = os.path.join(cache_dir, f"{file_key}-{mtime}-pptx.json")
+RENDER_VER = "v4"
+meta_path = os.path.join(cache_dir, f"{file_key}-{mtime}-{RENDER_VER}-pptx.json")
 
 if os.path.isfile(meta_path):
     try:
@@ -139,15 +140,226 @@ if let items = try? fm.contentsOfDirectory(atPath: dir) {
 }
 """
 
-def build_pdf_from_pptx(pptx_path, target_pdf):
-    # 1. Check if an exported sibling .pdf exists right next to the .pptx (e.g. exported by PowerPoint/Keynote)
+def clean_ql_html(pptx_path, html):
+    if not zipfile.is_zipfile(pptx_path):
+        return html
+    m = re.search(r"div\.slide,\s*div\.loading-slide\s*\{\s*width:\s*(\d+);\s*height:\s*(\d+);", html)
+    sw, sh = (int(m.group(1)), int(m.group(2))) if m else (960, 540)
+
+    theme_colors = {
+        "bg1": "FFFFFF", "lt1": "FFFFFF", "dk1": "000000", "tx1": "000000",
+        "bg2": "F5EEF8", "lt2": "F5EEF8", "dk2": "301D40", "tx2": "301D40",
+        "accent1": "45285C", "accent2": "9869B5", "accent3": "C85A32",
+        "accent4": "E0A55A", "accent5": "2E6B4E", "accent6": "E2D6EC",
+    }
+    slide_data = []
+    try:
+        with zipfile.ZipFile(pptx_path, "r") as z:
+            names = set(z.namelist())
+            for tname in sorted(n for n in names if re.match(r"^ppt/theme/theme\d+\.xml$", n)):
+                try:
+                    troot = ET.fromstring(z.read(tname))
+                    cscheme = troot.find(".//a:clrScheme", NS)
+                    if cscheme is not None:
+                        for child in cscheme:
+                            k = child.tag.split("}")[-1]
+                            srgb = child.find(".//a:srgbClr", NS)
+                            sysclr = child.find(".//a:sysClr", NS)
+                            if srgb is not None and "val" in srgb.attrib:
+                                theme_colors[k] = srgb.attrib["val"]
+                            elif sysclr is not None and "lastClr" in sysclr.attrib:
+                                theme_colors[k] = sysclr.attrib["lastClr"]
+                except Exception:
+                    pass
+            theme_colors["bg1"] = theme_colors.get("lt1", "FFFFFF")
+            theme_colors["bg2"] = theme_colors.get("lt2", "F5EEF8")
+            theme_colors["tx1"] = theme_colors.get("dk1", "000000")
+            theme_colors["tx2"] = theme_colors.get("dk2", "301D40")
+
+            emu_w, emu_h = 12192000, 6858000
+            if "ppt/presentation.xml" in names:
+                try:
+                    proot = ET.fromstring(z.read("ppt/presentation.xml"))
+                    sz = proot.find("p:sldSz", NS)
+                    if sz is not None:
+                        emu_w = int(sz.attrib.get("cx", emu_w))
+                        emu_h = int(sz.attrib.get("cy", emu_h))
+                except Exception:
+                    pass
+
+            def resolve_color(el):
+                if el is None:
+                    return None
+                srgb = el.find("a:srgbClr", NS)
+                if srgb is not None and "val" in srgb.attrib:
+                    return "#" + srgb.attrib["val"]
+                sch = el.find("a:schemeClr", NS)
+                if sch is not None and "val" in sch.attrib:
+                    return "#" + theme_colors.get(sch.attrib["val"], "FFFFFF")
+                return None
+
+            slide_files = sorted(
+                [n for n in names if re.match(r"^ppt/slides/slide\d+\.xml$", n)],
+                key=lambda x: int(re.search(r"slide(\d+)\.xml$", x).group(1)),
+            )
+            for sf in slide_files:
+                sroot = ET.fromstring(z.read(sf))
+                all_boxes = []
+                filled_shapes = []
+                for xfrm in sroot.findall(".//a:xfrm", NS):
+                    off = xfrm.find("a:off", NS)
+                    ext = xfrm.find("a:ext", NS)
+                    if off is not None and ext is not None and "x" in off.attrib and "cx" in ext.attrib:
+                        x = float(off.attrib["x"]) / emu_w * sw
+                        y = float(off.attrib["y"]) / emu_h * sh
+                        w = float(ext.attrib["cx"]) / emu_w * sw
+                        h = float(ext.attrib["cy"]) / emu_h * sh
+                        if w > 0 or h > 0:
+                            all_boxes.append((x, y, w, h))
+                for sp in sroot.findall(".//p:sp", NS):
+                    spPr = sp.find("p:spPr", NS)
+                    if spPr is None:
+                        continue
+                    xfrm = spPr.find("a:xfrm", NS)
+                    if xfrm is None:
+                        continue
+                    off, ext = xfrm.find("a:off", NS), xfrm.find("a:ext", NS)
+                    if off is None or ext is None or "x" not in off.attrib or "cx" not in ext.attrib:
+                        continue
+                    x = float(off.attrib["x"]) / emu_w * sw
+                    y = float(off.attrib["y"]) / emu_h * sh
+                    w = float(ext.attrib["cx"]) / emu_w * sw
+                    h = float(ext.attrib["cy"]) / emu_h * sh
+                    sfill = spPr.find("a:solidFill", NS)
+                    fill_clr = resolve_color(sfill)
+                    ln = spPr.find("a:ln", NS)
+                    ln_clr = resolve_color(ln.find("a:solidFill", NS)) if ln is not None else None
+                    prst = spPr.find("a:prstGeom", NS)
+                    geom = prst.attrib.get("prst", "rect") if prst is not None else "rect"
+                    if fill_clr or ln_clr:
+                        filled_shapes.append({
+                            "x": x, "y": y, "w": w, "h": h,
+                            "fill": fill_clr, "stroke": ln_clr, "geom": geom,
+                            "matched": False,
+                        })
+                slide_data.append((all_boxes, filled_shapes))
+    except Exception:
+        return html
+
+    seen_pdfs = set()
+    slide_idx = [0]
+
+    def process_slide(match):
+        s_html = match.group(0)
+        idx = slide_idx[0]
+        slide_idx[0] += 1
+        if idx >= len(slide_data):
+            return s_html
+        all_boxes, filled_shapes = slide_data[idx]
+
+        img_pattern = re.compile(r'<img\s+src="(Attachment\d+\.pdf)"\s+style="([^"]+)"[^>]*>')
+        imgs = list(img_pattern.finditer(s_html))
+        keep_flags = []
+        for im in imgs:
+            src, st = im.group(1), im.group(2)
+            tm = re.search(r"top:(-?\d+);\s*left:(-?\d+);\s*width:(\d+);\s*height:(\d+)", st)
+            if not tm:
+                keep_flags.append(True)
+                seen_pdfs.add(src)
+                continue
+            top, left, width, height = map(float, tm.groups())
+            icx, icy = left + width / 2.0, top + height / 2.0
+            matched_fs = None
+            for fs in filled_shapes:
+                if fs["matched"]:
+                    continue
+                fcx, fcy = fs["x"] + fs["w"] / 2.0, fs["y"] + fs["h"] / 2.0
+                if abs(icx - fcx) <= 24 and abs(icy - fcy) <= 24 and abs(width - fs["w"]) <= 64 and abs(height - fs["h"]) <= 64:
+                    matched_fs = fs
+                    break
+            if matched_fs is not None:
+                matched_fs["matched"] = True
+                keep_flags.append(True)
+            else:
+                is_ghost = src in seen_pdfs
+                keep_flags.append(not is_ghost)
+            seen_pdfs.add(src)
+
+        unmatched_shapes = sorted(
+            [fs for fs in filled_shapes if not fs["matched"]],
+            key=lambda s: s["w"] * s["h"],
+            reverse=True,
+        )
+        img_counter = [0]
+
+        def remove_ghost_img(im):
+            k = img_counter[0]
+            img_counter[0] += 1
+            return im.group(0) if keep_flags[k] else ""
+
+        cleaned_html = img_pattern.sub(remove_ghost_img, s_html)
+
+        # Insert each unmatched shape right before the first child element whose center lies inside the shape
+        pos_el_pattern = re.compile(r'<(?:div|img)\b[^>]*style="position:absolute;\s*top:(-?\d+(?:\.\d+)?);\s*left:(-?\d+(?:\.\d+)?);\s*width:(\d+(?:\.\d+)?);\s*height:(\d+(?:\.\d+)?);[^"]*"[^>]*>')
+        for fs in unmatched_shapes:
+            radius = "50%" if fs["geom"] == "ellipse" else ("10px" if "round" in fs["geom"].lower() else "0px")
+            fill_val = fs["fill"]
+            stroke_val = fs["stroke"]
+            bg = f"background-color:{fill_val};" if fill_val else ""
+            bd = f"border:1px solid {stroke_val};" if stroke_val else ""
+            top_v, left_v, w_v, h_v = fs["y"], fs["x"], fs["w"], fs["h"]
+            shape_div = f'<div style="position:absolute; top:{top_v:.1f}px; left:{left_v:.1f}px; width:{w_v:.1f}px; height:{h_v:.1f}px; {bg} {bd} border-radius:{radius}; box-sizing:border-box;"></div>'
+
+            insert_pos = None
+            for pm in pos_el_pattern.finditer(cleaned_html):
+                et, el, ew, eh = map(float, pm.groups())
+                ecx, ecy = el + ew / 2.0, et + eh / 2.0
+                # Element center is inside shape bounds and element is not larger than the shape itself
+                if (left_v - 6 <= ecx <= left_v + w_v + 6) and (top_v - 6 <= ecy <= top_v + h_v + 6) and (ew * eh <= w_v * h_v * 1.15 + 100):
+                    insert_pos = pm.start()
+                    break
+            if insert_pos is not None:
+                cleaned_html = cleaned_html[:insert_pos] + shape_div + cleaned_html[insert_pos:]
+            else:
+                end_idx = cleaned_html.rfind("</div>")
+                if end_idx >= 0:
+                    cleaned_html = cleaned_html[:end_idx] + shape_div + cleaned_html[end_idx:]
+
+        return cleaned_html
+
+    return re.sub(r'<div class="slide"[^>]*>.*?(?=<div class="slide"|</body>)', process_slide, html, flags=re.S)
+
+def valid_sibling_slide_pdf(cand_pdf, expected_slides):
+    if expected_slides <= 0:
+        return False
+    check_jxa = """
+    ObjC.import('Foundation'); ObjC.import('PDFKit');
+    function run(argv) {
+      var doc = $.PDFDocument.alloc.initWithURL($.NSURL.fileURLWithPath($(argv[0])));
+      if (!doc || doc.isNil()) return "0,0,0";
+      var c = Number(doc.pageCount);
+      if (c <= 0) return "0,0,0";
+      var box = doc.pageAtIndex(0).boundsForBox(1);
+      return c + "," + Math.round(box.size.width) + "," + Math.round(box.size.height);
+    }
+    """
+    try:
+        out = subprocess.check_output(["osascript", "-l", "JavaScript", "-e", check_jxa, cand_pdf], text=True, timeout=5).strip()
+        c, w, h = [int(x) for x in out.split(",")]
+        return c == expected_slides and w > h
+    except Exception:
+        return False
+
+def build_pdf_from_pptx(pptx_path, target_pdf, expected_slides=0):
+    # 1. Check if an exported sibling .pdf exists right next to the .pptx AND matches slide count & landscape aspect ratio
     stem = os.path.splitext(pptx_path)[0]
     for cand in (stem + ".pdf", stem + ".PDF"):
         if os.path.isfile(cand) and os.path.getmtime(cand) >= os.path.getmtime(pptx_path) - 86400:
-            shutil.copyfile(cand, target_pdf)
-            return True
+            if valid_sibling_slide_pdf(cand, expected_slides):
+                shutil.copyfile(cand, target_pdf)
+                return True
 
-    # 2. Otherwise convert via macOS QuickLook (qlmanage -p) + CoreGraphics transparent vector PNGs + Headless Chrome
+    # 2. Otherwise convert via macOS QuickLook (qlmanage -p) + ghost shape cleanup + CoreGraphics transparent vector PNGs + Headless Chrome
     browsers = [
         "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
         "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser",
@@ -168,9 +380,10 @@ def build_pdf_from_pptx(pptx_path, target_pdf):
         if not os.path.isfile(html_path):
             return False
 
-        subprocess.run(["swift", "-e", SWIFT_VEC_TO_PNG, ql_dir], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=25)
         with open(html_path, "r", encoding="utf-8", errors="ignore") as f:
             html = f.read()
+        html = clean_ql_html(pptx_path, html)
+        subprocess.run(["swift", "-e", SWIFT_VEC_TO_PNG, ql_dir], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=25)
         html = re.sub(r"(Attachment\d+)\.pdf", r"\1_vec.png", html)
         m = re.search(r"div\.slide,\s*div\.loading-slide\s*\{\s*width:\s*(\d+);\s*height:\s*(\d+);", html)
         sw, sh = (int(m.group(1)), int(m.group(2))) if m else (720, 405)
@@ -195,9 +408,10 @@ def build_pdf_from_pptx(pptx_path, target_pdf):
     finally:
         shutil.rmtree(tmp_dir, ignore_errors=True)
 
-pdf_cache = os.path.join(cache_dir, f"{file_key}-{mtime}-slides.pdf")
+outline = parse_outline(src)
+pdf_cache = os.path.join(cache_dir, f"{file_key}-{mtime}-{RENDER_VER}-slides.pdf")
 if not os.path.isfile(pdf_cache):
-    build_pdf_from_pptx(src, pdf_cache)
+    build_pdf_from_pptx(src, pdf_cache, expected_slides=len(outline))
 
 pages = []
 if os.path.isfile(pdf_cache):
@@ -224,11 +438,10 @@ if os.path.isfile(pdf_cache):
       return JSON.stringify(out);
     }
     """
-    prefix = f"{file_key}-{mtime}"
+    prefix = f"{file_key}-{mtime}-{RENDER_VER}"
     raw_pages = subprocess.check_output(["osascript", "-l", "JavaScript", "-e", jxa, pdf_cache, cache_dir, prefix, "1600"], text=True)
     pages = json.loads(raw_pages.strip())
 
-outline = parse_outline(src)
 result = {
     "count": len(pages) or len(outline) or 1,
     "pages": pages,

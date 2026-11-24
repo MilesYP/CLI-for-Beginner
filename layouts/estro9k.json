@@ -222,7 +222,10 @@
                   },
                   "header": {
                     "content": {
-                      "mod": "pane"
+                      "mod": "custom-status",
+                      "props": {
+                        "view": "pane-header"
+                      }
                     },
                     "height": 30,
                     "position": "top",

@@ -19,6 +19,7 @@ import { systemOf } from "./platform.js";
 const AUTO_FILE = "cria-file-preview.autoFile";
 const AUTO_PANE = "cria-file-preview.autoPane";
 const SIBLING_SCOPE = "cria-file-preview.siblingScope";
+const PREVIEW_HEAD_SHARED = "cria-file-preview.head";
 const MEDIA_VIEWERS = new Set(["image", "pdf", "pptx", "markdown", "html", "audio", "video"]);
 
 export class Preview {
@@ -70,13 +71,18 @@ export class Preview {
   syncPaneAndRequest(cx) {
     const live = panes() ?? [];
     if (!this.paneId) {
+      const initFile = props()?.file;
       const candidates = live.filter((p) => p.mod === "cria-file-preview" && (!this.tabId || p.tab === this.tabId));
-      if (candidates.length === 1) {
-        this.paneId = candidates[0].pane;
-        this.tabId = candidates[0].tab;
-        if (this.auto && !checking()) {
+      const matched = (initFile && candidates.find((p) => p.props?.file === initFile)) || (candidates.length === 1 ? candidates[0] : candidates[candidates.length - 1]);
+      if (matched) {
+        this.paneId = matched.pane;
+        this.tabId = matched.tab;
+        if (!checking()) {
           const paneId = this.paneId;
-          cx.timer.after(1, () => setShared(AUTO_PANE, paneId));
+          cx.timer.after(1, () => {
+            if (this.auto) setShared(AUTO_PANE, paneId);
+            this.publishHead();
+          });
         }
       }
     }
@@ -127,11 +133,31 @@ export class Preview {
     };
   }
 
+  publishHead() {
+    if (checking()) return;
+    const prev = shared(PREVIEW_HEAD_SHARED) ?? {};
+    const entry = {
+      pane: this.paneId,
+      file: this.file,
+      name: this.file ? basename(this.file) : "",
+      dir: this.file ? native(dirname(this.file), this.system) : "",
+      fullPath: this.file ? native(this.file, this.system) : "",
+      bytes: this.bytes,
+      sizeText: this.bytes != null ? formatSize(this.bytes) : "",
+      auto: this.auto,
+    };
+    const next = { ...prev, latest: entry };
+    if (this.paneId) next[this.paneId] = entry;
+    setShared(PREVIEW_HEAD_SHARED, next);
+  }
+
   // reload: the same file changed on disk; the old view stays until the new one is ready.
   show(file, cx, reload = false) {
     const previous = reload ? this.state : null;
     if (!reload) this.release();
     this.file = file; this.error = null;
+    if (!reload) this.bytes = null;
+    this.publishHead();
     if (!file) { this.error = "No file to show"; return; }
     if (!reload) {
       this.watch(cx);
@@ -146,7 +172,11 @@ export class Preview {
     const env = this.env(), loading = this.loading = {};
     cx.spawn(async (cx) => {
       const r = await exec(...programs(this.system).bytes(file), { on: this.on }).catch(() => null);
-      if (this.loading === loading) { this.bytes = r?.code === 0 ? Number(r.stdout.trim()) : null; cx.notify(); }
+      if (this.loading === loading) {
+        this.bytes = r?.code === 0 ? Number(r.stdout.trim()) : null;
+        this.publishHead();
+        cx.notify();
+      }
     });
     cx.spawn(async (cx) => {
       try {
@@ -290,14 +320,9 @@ export class Preview {
     return v_flex().id("cria-file-preview").size_full().min_h(0).bg(t.background).text_color(t.foreground).text_size(13)
       .track_focus(this.focusHandle).on_key_down((e, cx) => this.onKey(e, cx))
       .on_mouse_down("left", () => this.focusPane())
-      .child(h_flex().h(42).flex_none().px(10).gap(8).items_center().border_b(1).border_color(t.border)
+      .child(h_flex().h(38).flex_none().px(10).gap(8).items_center().border_b(1).border_color(t.border)
         .when(this.history.length > 0, (el) => el.child(control("cria-file-preview-back", "←", `Back to ${basename(this.history.at(-1))}`, (_e, cx) => this.back(cx))))
-        .child(h_flex().flex_1().min_w(0).gap(8).items_center().pl(this.history.length ? 0 : 4)
-          .when(this.auto, (el) => el.child(div().flex_none().px(5).py(1).rounded(4).bg(t.accent).text_color(t.background).text_size(10).font_semibold().child("AUTO")))
-          .child(this.copier("cria-file-preview-name", basename(this.file ?? ""), "name", t).flex_none().max_w(320).font_semibold())
-          .child(this.copier("cria-file-preview-path", this.file ? native(dirname(this.file), this.system) : "", "path", t).flex_shrink(1).text_size(12).text_color(t.dim))
-          .when(this.bytes != null, (el) => el.child(div().flex_none().text_size(12).text_color(t.dim).child(formatSize(this.bytes))))
-          .child(div().flex_1()))
+        .child(div().flex_1().min_w(0))
         .when(Boolean(this.file && this.siblings.length > 0), (el) => el.child(sibNav))
         .when(Boolean(state && viewer?.toolbar), (el) => el.child(viewer.toolbar(state, env)))
         .when(Boolean(this.file), (el) => el.child(iconButton("more", "more", "Open in editor, reveal, copy the path…", false, () => openMenu(this.file, this.on)))))
