@@ -105,33 +105,39 @@ def parse_pptx(path):
             tables = []
             images = []
 
-            # Walk shapes in spTree
+            # Walk shapes in spTree (note: in PresentationML, txBody is p:txBody, and paragraphs are a:p)
             for sp in sroot.findall(".//p:sp", NS):
                 ph = sp.find(".//p:nvSpPr/p:nvPr/p:ph", NS)
                 ph_type = ph.attrib.get("type", "") if ph is not None else ""
                 is_title = ph_type in ("title", "ctrTitle")
-                is_sub = ph_type == "subTitle"
+                is_sub = ph_type in ("subTitle", "body") and not title and idx == 1
 
                 paras = []
-                for p_el in sp.findall(".//a:txBody/a:p", NS):
+                for p_el in sp.findall(".//a:p", NS):
                     pPr = p_el.find("a:pPr", NS)
                     lvl = int(pPr.attrib.get("lvl", "0")) if pPr is not None and pPr.attrib.get("lvl", "").isdigit() else 0
                     texts = [t_el.text for t_el in p_el.findall(".//a:t", NS) if t_el.text]
-                    line = "".join(texts).strip()
+                    line = " ".join("".join(texts).split())
                     if line:
                         paras.append((lvl, line))
 
                 if not paras:
                     continue
+                # Skip footer boilerplate like "Wadiz x CLICKFORCE | Confidential" or pure slide numbers
+                if len(paras) == 1 and (paras[0][1].isdigit() or "Confidential" in paras[0][1]):
+                    continue
                 if is_title and not title:
                     title = " ".join(t for _, t in paras)
                 elif is_sub and not subtitle:
                     subtitle = " ".join(t for _, t in paras)
-                elif not title and idx == 1 and len(bullets) == 0 and len(paras) == 1:
+                elif not title and len(paras) == 1 and len(paras[0][1]) <= 65:
                     title = paras[0][1]
+                elif not subtitle and title and len(bullets) == 0 and len(paras) == 1 and len(paras[0][1]) <= 110:
+                    subtitle = paras[0][1]
                 else:
                     for lvl, line in paras:
-                        bullets.append({"level": lvl, "text": line})
+                        if line != title and line != subtitle and "Confidential" not in line and not line.isdigit():
+                            bullets.append({"level": lvl, "text": line})
 
             # Fallback if no title placeholder found: promote first short line
             if not title and bullets:

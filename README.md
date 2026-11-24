@@ -1,9 +1,25 @@
-# HerdrSetup：estro9k layout（CLI for Beginner）
+# CLI for Beginner — Herdr `estro9k` AI 終端機工作台
 
-Herdr（終端機／coding agent 桌面 app）的自訂 layout `estro9k` 與它用到的 mod。
-原始檔放在這裡；Herdr 實際讀的是 `~/.config/herdr-app/`，由 `install.sh` 複製過去。
+專為 **Claude Code**、**Antigravity (`agy`)** 與 **OpenAI Codex** 打造的一站式 Herdr 終端機桌面佈局。
+原始檔完整保存在本儲存庫；Herdr 實際讀的是 `~/.config/herdr-app/`，由 `sh install.sh` 自動備份並同步安裝。
 
-> 🌐 **互動式 HTML 介面介紹頁**：本儲存庫內建 [index.html](index.html)（零外部依賴，支援直接於瀏覽器、Herdr 右側 `cria-file-preview` 或 GitHub Pages 開啟），提供 1:1 互動式 Herdr `estro9k` 介面模擬器（可直接體驗右下角三段權限開關、左側 Agent 右鍵標記未讀藍點、並排預覽切圖與三合一用量面板）。
+> 🌐 **互動式 1:1 介面介紹網頁（[index.html](index.html)）**
+> 本儲存庫內建零外部依賴的 [index.html](index.html) 互動式展示頁：
+> - **本機／Herdr 內觀看**：在右側 `Files` 點擊 `index.html`（或按 `Open in browser`）即可直接操作 1:1 介面模擬器。
+> - **線上直接開啟**：若啟用 GitHub Pages，或透過 [htmlpreview.github.io 線上預覽點此開啟](https://htmlpreview.github.io/?https://github.com/MilesYP/CLI-for-Beginner/blob/main/index.html) 即可直接在瀏覽器互動體驗**右下角三段權限開關**、**左側 Agent 右鍵標記未讀藍點**、**並排多媒體預覽**與**三合一用量面板**！
+
+---
+
+## ✨ 六大核心客製化亮點
+
+| 功能亮點 | 解決痛點與實際效果 |
+|---|---|
+| **1. 底部三段權限開關**<br>（`custom-status` + `permission-guard.py`） | 在視窗最底部提供針對**當前對話框 session** 獨立生效的滑鼠點擊按鈕，並與三套 AI 狀態列及 `PreToolUse` / `PermissionRequest` Hook 即時連動：<br>• **`💬 每次都問`（預設，深石板藍 `#3B4252`）**：寫檔、改檔或執行指令前每次詢問（純讀檔自動放行）。<br>• **`🚧 刪改才問`（皇家亮藍 `#2563EB`）**：一般讀寫與測試自動放行；**只有遇到刪除檔案**（`rm`、`unlink`、`trash`）、**覆蓋既有檔案**或**危險強制指令**（`git reset --hard`、`git clean`、`mv -f`）才攔截詢問。<br>• **`🚀 最高權限`（烈焰橘紅 `#EA580C`）**：當前對話全速自動放行。 |
+| **2. 並排共用預覽框 ＋ 右側 Files 自動跟隨**<br>（`cria-file-preview` + `cria-files-extended`） | • **預設並排、原地換圖**：按 `Cmd + 點擊` 終端機檔案連結（含 `file://`）或點右側 `Files` 檔案時，在右半邊並排開啟預覽；再點其他圖片／文件時**共用同一預覽框原地切換**。<br>• **自動跟隨目錄＋高亮**：預覽切換檔案時，右側 `Files` 自動切換至該媒體檔所在資料夾並高亮該檔，標題列提供 `↑`（上一層）與 `⌂`（回專案根目錄）。<br>• **四方向鍵切圖＋兩指捏合縮放＋PPT 簡報預覽**：支援 `← → ↑ ↓` 切圖、觸控板**兩指捏合（Pinch）**無段縮放，並內建 **`.pptx / .ppt` 16:9 簡報預覽器**（含單頁／連續／大綱模式、表格、內嵌圖片、講者備忘稿與 `Open in App ↗`）。 |
+| **3. 左側 Agent 列右鍵「標記為未讀藍點」**<br>（`better-sidebar/views/agents.js`） | 對左側 `Agents` 清單中任一已讀 Agent 按**滑鼠右鍵**彈出選單，點選 **「🔵 標記為未讀（顯示藍點）」** 即可將空心圓環恢復為**未讀實心亮藍點**與亮白字體；下次左鍵點進該對話時自動恢復為已讀。 |
+| **4. 三套 AI 統一彩色狀態列 ＋ 70% 轉紅警示**<br>（`statusline/*`） | Claude Code、`agy`、Codex 底部統一顯示：`[模型] [目前路徑] [Context 已用 %] [權限模式] [對話標題]`。<br>• **70% 警戒轉紅**：Context 達 `70%` 自動由灰轉紅。<br>• **`agy` 官方對話標題即時同步**：自動讀取 `~/.gemini/antigravity-cli/conversation_summaries.db` 官方生成標題並透過 PTY OSC 0 即時更新 Herdr 側欄、分頁與紫色狀態列色塊。 |
+| **5. Codex 待複製內容標色 ＋ 高對比深色主題**<br>（`cli-beginner-dark.tmTheme` + `codex-AGENTS.md`） | 自動將 Codex 設為高對比深色主題 `cli-beginner-dark`，並規範 `📋 ：` 後方的待複製指令一律以亮青色膠囊與深藍底色醒目標示。 |
+| **6. 左下三合一用量 ＋ Claude Credit 剩餘額度**<br>（`over9k-usage`） | 左下角一次掌握 **Claude `Pro`**（含 **`Credit Est.`** 預付額度即時剩餘美金與 1d/1w/2w/30d 每日長條圖）、**Codex `Plus`** 與 **Gemini `Pro`（agy）** 的 5h / 7d 配額進度條。 |
 
 ## 要改版面時
 
