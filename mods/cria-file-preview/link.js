@@ -78,7 +78,6 @@ export async function handleLink(click) {
   const { link, source } = click ?? {};
   const on = source?.machine || null;
   const candidates = candidatePaths(link, source);
-  if (!candidates.length) return "pass";
 
   // Find the first candidate that exists as a regular file on disk.
   let file = null;
@@ -89,6 +88,56 @@ export async function handleLink(click) {
       break;
     }
   }
+
+  // Fallback for agy TUI wrapped/glued links: if the path was wrapped across terminal lines or glued
+  // with a label, extract any filename or prefix fragment and resolve via Spotlight (mdfind) / find.
+  if (!file && !on) {
+    const rawStr = cleanToken(link?.url || link?.raw || link?.path || "");
+    if (rawStr && !/^https?:\/\//i.test(rawStr) && !/^mailto:/i.test(rawStr)) {
+      const h = (home?.() || "").replace(/[\\/]+$/, "");
+      const activeSpace = spaces()?.find((s) => s.active);
+      // Extract the last path segment or filename stem
+      const afterTilde = rawStr.includes("~/") ? rawStr.slice(rawStr.lastIndexOf("~/") + 2) : rawStr;
+      const segs = afterTilde.split(/[\\/]/).filter(Boolean);
+      const lastSeg = segs[segs.length - 1] || "";
+      if (lastSeg.length >= 4) {
+        const searchDirs = [source?.cwd, activeSpace?.folder, h ? `${h}/Desktop` : null, h ? `${h}/Developer` : null].filter(Boolean);
+        const pyResolve = `
+import os, subprocess, sys
+frag, after_tilde, home_dir = sys.argv[1], sys.argv[2], sys.argv[3]
+dirs = [d for d in sys.argv[4:] if d and os.path.isdir(d)]
+# 1. If after_tilde has a parent folder under home_dir, glob prefix inside that parent folder
+if "/" in after_tilde and home_dir:
+    full_prefix = os.path.join(home_dir, after_tilde)
+    parent = os.path.dirname(full_prefix)
+    base_pref = os.path.basename(full_prefix)
+    if os.path.isdir(parent) and base_pref:
+        for name in sorted(os.listdir(parent)):
+            p = os.path.join(parent, name)
+            if os.path.isfile(p) and (name.startswith(base_pref) or base_pref in name):
+                print(p)
+                sys.exit(0)
+# 2. Spotlight mdfind by filename fragment
+try:
+    out = subprocess.check_output(["mdfind", "-name", frag], text=True, timeout=2).splitlines()
+    for p in out:
+        if os.path.isfile(p) and any(p.startswith(d) for d in dirs):
+            print(p)
+            sys.exit(0)
+    for p in out:
+        if os.path.isfile(p):
+            print(p)
+            sys.exit(0)
+except Exception:
+    pass
+`;
+        const r = await exec("python3", ["-c", pyResolve, lastSeg, afterTilde, h, ...searchDirs]).catch(() => null);
+        const found = r?.code === 0 ? r.stdout.trim().split(/\r?\n/)[0] : "";
+        if (found) file = found;
+      }
+    }
+  }
+
   if (!file) return "pass";
 
   const livePanes = panes() ?? [];

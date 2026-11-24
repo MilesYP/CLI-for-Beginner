@@ -388,10 +388,31 @@ export default class Files extends View {
     return true;
   }
 
+  closePreviewAndPanel() {
+    const f = focused();
+    const activeSpace = spaces()?.find((s) => s.active);
+    const currentTab = f?.tab || activeSpace?.tabs?.find((t) => t.active)?.id || null;
+    const live = panes() ?? [];
+    const previewPanes = live.filter((p) => p.mod === "cria-file-preview" && (!currentTab || p.tab === currentTab));
+    const termPane = live.find((p) => p.terminal && (!currentTab || p.tab === currentTab))?.pane;
+    try { run("layout.hide", { id: "panel" }); } catch {}
+    for (const pp of previewPanes) {
+      try { run("pane.close", { pane: pp.pane }); } catch {}
+    }
+    if (termPane) {
+      try { run("pane.focus", { pane: termPane }); } catch {}
+    }
+  }
+
   menuKey(e, cx) {
     const menu = this.menu;
     if (!menu) {
       const k = (e.key || e.keystroke || "").toLowerCase();
+      if (k === "escape" || k === "esc") {
+        cx.stop_propagation();
+        this.closePreviewAndPanel();
+        return;
+      }
       if (k === "left" || k === "arrowleft" || k === "up" || k === "arrowup" || k === "[") {
         if (this.stepActiveFile(-1)) { cx.stop_propagation(); cx.notify(); }
       } else if (k === "right" || k === "arrowright" || k === "down" || k === "arrowdown" || k === "]") {

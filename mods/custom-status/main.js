@@ -7,7 +7,7 @@
 
 import { View, div, svg, image } from "gpui-kit";
 import { h_flex } from "gpui-base";
-import { spaces, agents, panes, focused, theme, run, window, keys, exec, home, shared, setShared, notify, checking, props, layout } from "herdr";
+import { spaces, agents, panes, focused, theme, run, window, keys, exec, home, shared, setShared, notify, checking, props, layout, nextCommand } from "herdr";
 
 const PERM_SHARED = "herdr.permissions";
 const AGY_TITLES_SHARED = "herdr.agy-titles";
@@ -54,6 +54,30 @@ export default class CustomStatus extends View {
     if (!this.isPaneHeader && !checking()) {
       this.syncFromDisk(cx);
       cx.timer.every(6000, (cx) => this.syncAgyTitles(cx));
+      cx.spawn(async () => {
+        for (;;) {
+          const cmd = await nextCommand();
+          if (cmd === "close-preview-and-panel") {
+            this.closePreviewAndPanel();
+          }
+        }
+      });
+    }
+  }
+
+  closePreviewAndPanel() {
+    const f = focused();
+    const activeSpace = spaces()?.find((s) => s.active);
+    const currentTab = f?.tab || activeSpace?.tabs?.find((t) => t.active)?.id || null;
+    const live = panes() ?? [];
+    const previewPanes = live.filter((p) => p.mod === "cria-file-preview" && (!currentTab || p.tab === currentTab));
+    const termPane = live.find((p) => p.terminal && (!currentTab || p.tab === currentTab))?.pane;
+    try { run("layout.hide", { id: "panel" }); } catch {}
+    for (const pp of previewPanes) {
+      try { run("pane.close", { pane: pp.pane }); } catch {}
+    }
+    if (termPane) {
+      try { run("pane.focus", { pane: termPane }); } catch {}
     }
   }
 

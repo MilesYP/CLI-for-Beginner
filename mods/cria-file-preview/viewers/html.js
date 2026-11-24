@@ -1,15 +1,14 @@
 // Visual HTML Viewer for cria-file-preview:
-// Supports HTML files of ANY size (including > 1 MiB files with embedded base64 images)
-// without throwing the 1 MiB text limit error.
-// Renders full CSS / Flexbox / Grid / JS web pages into Retina high-DPI preview pages
-// via headless Chrome/Brave/Edge, with:
-//   - "視覺網頁 (Visual)" | "文字 (Text)" | "Raw" modes
-//   - Desktop (1360px) / Mobile (430px) viewport toggle
-//   - Smooth vertical scrolling + Trackpad two-finger pinch zoom (on_pinch) & Cmd+Wheel zoom
+// Uses v_virtual_list + VirtualListScrollHandle + Scrollbar.vertical (matching pdf.js and pptx.js)
+// so even 1.9 MB+ multi-page HTML files scroll and zoom smoothly without freezing the UI thread.
+//   - "視覺網頁 (Visual)" | "Raw" modes (loads raw text on-demand only when Raw is clicked)
+//   - Desktop (1280px) / Mobile (430px) viewport toggle
+//   - Page navigation ‹ 1 / N › + bottom-right "Page X / N" badge
+//   - Trackpad two-finger pinch zoom (on_pinch) & Cmd+Wheel zoom
 //   - "Open in browser ↗" for full interactive testing
 
 import { div, image } from "gpui-kit";
-import { v_flex, h_flex, TextView } from "gpui-base";
+import { v_flex, h_flex, v_virtual_list, Scrollbar, VirtualListScrollHandle } from "gpui-base";
 import { exec, appHome, notify, theme, window } from "herdr";
 import { readLongText, codeState, codeView } from "./text.js";
 import { segmented, wrapButton } from "./controls.js";
@@ -17,6 +16,7 @@ import { zoomControl } from "./zoom.js";
 import { wheelZoom, pinchZoom } from "../pan-zoom.js";
 import { key, pruneCache } from "../media.js";
 
+const GAP = 16;
 let views = 0;
 
 const HTML_RENDER_PY = String.raw`
@@ -29,6 +29,7 @@ if not os.path.isfile(src):
 
 mtime = int(os.path.getmtime(src))
 os.makedirs(cache_dir, exist_ok=True)
+RENDER_VER = "v2"
 
 browsers = [
     "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
@@ -42,11 +43,9 @@ if not browser:
     print(json.dumps({"rendered": False, "reason": "No Chromium-based browser found"}))
     sys.exit(0)
 
-# Render HTML to PDF via Headless Chrome, then render pages to sharp Retina PNGs via macOS PDFKit
-# so multi-screen / 1.9MB+ long HTML documents render every section without getting cut off!
-pdf_name = f"{file_key}-{mtime}-{viewport}.pdf"
+pdf_name = f"{file_key}-{mtime}-{viewport}-{RENDER_VER}.pdf"
 pdf_full = os.path.join(cache_dir, pdf_name)
-meta_full = os.path.join(cache_dir, f"{file_key}-{mtime}-{viewport}.json")
+meta_full = os.path.join(cache_dir, f"{file_key}-{mtime}-{viewport}-{RENDER_VER}.json")
 
 if os.path.isfile(meta_full):
     try:
@@ -83,7 +82,7 @@ function run(argv) {
   var fm = $.NSFileManager.defaultManager;
   var doc = $.PDFDocument.alloc.initWithURL($.NSURL.fileURLWithPath($(source)));
   if (!doc || doc.isNil()) throw new Error('Cannot read generated PDF');
-  var count = Math.min(Number(doc.pageCount), 30), pages = [];
+  var count = Math.min(Number(doc.pageCount), 40), pages = [];
   for (var n = 1; n <= count; n++) {
     var name = prefix + '-p' + n + '.png', path = dir + '/' + name;
     var page = doc.pageAtIndex(n - 1), box = page.boundsForBox(1);
@@ -100,7 +99,7 @@ function run(argv) {
 }
 """
 
-prefix = f"{file_key}-{mtime}-{viewport}"
+prefix = f"{file_key}-{mtime}-{viewport}-{RENDER_VER}"
 wide = 1000 if viewport == "mobile" else 1600
 out = subprocess.check_output(["osascript", "-l", "JavaScript", "-e", jxa, pdf_full, cache_dir, prefix, str(wide)], text=True)
 with open(meta_full, "w", encoding="utf-8") as mf:
@@ -127,29 +126,62 @@ async function renderHtmlPages(file, viewport) {
   }
 }
 
+function jump(state, n) {
+  const count = state.visual?.pages?.length || 1;
+  n = Math.max(1, Math.min(count, n));
+  state.visible = n - 1;
+  state.scroll.scroll_to_item(n - 1, "top");
+}
+
 export default {
   id: "html",
   async load(file, env, previous) {
     const viewport = previous?.viewport ?? "desktop";
-    const [longRes, visual] = await Promise.all([
-      readLongText(file, env.on).catch(() => ({ text: "", cut: true })),
-      !env.on ? renderHtmlPages(file, viewport) : Promise.resolve(null),
-    ]);
+    const visual = !env.on ? await renderHtmlPages(file, viewport) : null;
     if (!env.on) pruneCache();
-    const text = longRes.text || "";
-    const mode = previous?.mode ?? (visual ? "visual" : "text");
+    let text = "";
+    let editor = null;
+    const mode = previous?.mode === "raw" ? "raw" : "visual";
+    if (mode === "raw" || !visual) {
+      const longRes = await readLongText(file, env.on, 262144).catch(() => ({ text: "", cut: true }));
+      text = longRes.text || "";
+      editor = codeState(text, "html");
+    }
+    const pages = visual?.pages ?? [];
+    const ratio = pages[0] ? pages[0].height / pages[0].width : 1.4;
     return {
       file,
+      on: env.on,
       text,
-      cut: Boolean(longRes.cut),
-      mode, // "visual" | "text" | "raw"
+      mode: visual ? mode : "raw", // "visual" | "raw"
       viewport, // "desktop" | "mobile"
       visual,
+      ratio,
+      visible: 0,
       loadingViewport: false,
+      loadingRaw: false,
       zoom: previous?.zoom ?? null,
-      editor: mode === "raw" ? codeState(text, "html") : null,
+      editor,
+      scroll: VirtualListScrollHandle.new(),
       id: `cria-file-preview-html-${++views}`,
     };
+  },
+
+  switchToRaw(state, cx) {
+    state.mode = "raw";
+    if (state.editor || state.loadingRaw) {
+      cx.notify();
+      return;
+    }
+    state.loadingRaw = true;
+    cx.notify();
+    cx.spawn(async (cx) => {
+      const longRes = await readLongText(state.file, state.on, 262144).catch(() => ({ text: "", cut: true }));
+      state.text = longRes.text || "";
+      state.editor = codeState(state.text, "html");
+      state.loadingRaw = false;
+      cx.notify();
+    });
   },
 
   switchViewport(state, nextVp, cx) {
@@ -159,7 +191,11 @@ export default {
     cx.notify();
     cx.spawn(async (cx) => {
       const pic = await renderHtmlPages(state.file, nextVp);
-      if (pic) state.visual = pic;
+      if (pic && pic.pages?.length) {
+        state.visual = pic;
+        state.ratio = pic.pages[0].height / pic.pages[0].width;
+        state.visible = 0;
+      }
       state.loadingViewport = false;
       cx.notify();
     });
@@ -168,6 +204,30 @@ export default {
   toolbar(state, env) {
     const t = theme();
     const platform = window()?.platform ?? "macos";
+    const pages = state.visual?.pages ?? [];
+    const page = state.visible + 1;
+    const last = pages.length || 1;
+    const step = (id, label, n) =>
+      div()
+        .id(`html-${id}`)
+        .w(22)
+        .h(22)
+        .flex()
+        .items_center()
+        .justify_center()
+        .rounded(5)
+        .text_color(n >= 1 && n <= last ? t.muted : t.dim)
+        .when(n >= 1 && n <= last, (el) =>
+          el
+            .cursor_pointer()
+            .hover((s) => s.bg(t.hover).text_color(t.foreground))
+            .on_click((_e, cx) => {
+              jump(state, n);
+              cx.notify();
+            }),
+        )
+        .child(label);
+
     return h_flex()
       .gap(6)
       .items_center()
@@ -175,23 +235,8 @@ export default {
       .when(Boolean(state.visual), (el) =>
         el.child(
           segmented([
-            ["html-visual", "視覺網頁", state.mode === "visual", () => { state.mode = "visual"; }],
-            ["html-text", "文字", state.mode === "text", () => { state.mode = "text"; }],
-            ["html-raw", "Raw", state.mode === "raw", () => {
-              state.mode = "raw";
-              if (!state.editor) state.editor = codeState(state.text, "html");
-            }],
-          ]),
-        ),
-      )
-      .when(!state.visual, (el) =>
-        el.child(
-          segmented([
-            ["html-text-only", "Preview", state.mode !== "raw", () => { state.mode = "text"; }],
-            ["html-raw-only", "Raw", state.mode === "raw", () => {
-              state.mode = "raw";
-              if (!state.editor) state.editor = codeState(state.text, "html");
-            }],
+            ["html-visual", "網頁預覽", state.mode === "visual", () => { state.mode = "visual"; }],
+            ["html-raw", "原始碼", state.mode === "raw", (_e, cx) => this.switchToRaw(state, cx)],
           ]),
         ),
       )
@@ -207,41 +252,54 @@ export default {
               .child(
                 div()
                   .id("html-vp-desktop")
-                  .px(8)
-                  .py(3)
+                  .px(7)
+                  .py(2)
                   .rounded(5)
                   .cursor_pointer()
                   .bg(state.viewport === "desktop" ? t.raised : t.chrome)
                   .text_color(state.viewport === "desktop" ? t.foreground : t.muted)
                   .hover((s) => s.text_color(t.foreground))
-                  .tooltip("桌面版視角")
+                  .tooltip("桌面版寬度 (1280px)")
                   .on_click((_e, cx) => this.switchViewport(state, "desktop", cx))
-                  .child("🖥 桌面"),
+                  .child("桌面"),
               )
               .child(
                 div()
                   .id("html-vp-mobile")
-                  .px(8)
-                  .py(3)
+                  .px(7)
+                  .py(2)
                   .rounded(5)
                   .cursor_pointer()
                   .bg(state.viewport === "mobile" ? t.raised : t.chrome)
                   .text_color(state.viewport === "mobile" ? t.foreground : t.muted)
                   .hover((s) => s.text_color(t.foreground))
-                  .tooltip("手機版視角")
+                  .tooltip("手機版寬度 (430px)")
                   .on_click((_e, cx) => this.switchViewport(state, "mobile", cx))
-                  .child("📱 手機"),
+                  .child("手機"),
               ),
+          )
+          .when(last > 1, (el2) =>
+            el2.child(
+              h_flex()
+                .gap(2)
+                .p(2)
+                .rounded(7)
+                .bg(t.chrome)
+                .items_center()
+                .child(step("prev", "‹", page - 1))
+                .child(div().min_w(46).text_center().text_color(t.foreground).child(`${page} / ${last}`))
+                .child(step("next", "›", page + 1)),
+            ),
           )
           .child(zoomControl(state, state.zoom ?? 1)),
       )
-      .when(state.mode === "raw", (el) => el.child(wrapButton(state, "html")))
+      .when(state.mode === "raw" && Boolean(state.editor), (el) => el.child(wrapButton(state, "html")))
       .when(!env.on, (el) =>
         el.child(
           div()
             .id("cria-file-preview-open-browser")
             .h(26)
-            .px(10)
+            .px(9)
             .flex()
             .items_center()
             .rounded(6)
@@ -269,64 +327,117 @@ export default {
 
   render(state, env) {
     const t = theme();
-    if (state.mode === "raw") return codeView(state.editor);
-    if (state.mode === "visual" && state.visual?.pages?.length) {
-      const scale = state.zoom ?? 1;
-      const maxFitW = state.viewport === "mobile"
-        ? Math.min(env.size.width - 32, 460)
-        : Math.max(280, Math.min(env.size.width - 28, 1200));
-      const dispW = Math.round(maxFitW * scale);
-
-      return v_flex()
-        .id(`${state.id}-visual-scroll`)
-        .size_full()
-        .overflow_y_scrollbar()
-        .overflow_x_scrollbar()
-        .p(14)
-        .gap(12)
-        .items_center()
-        .bg(t.canvas)
-        .on_scroll_wheel((e, cx) => {
-          if (e.modifiers?.control || e.modifiers?.platform) {
-            state.zoom = wheelZoom(state.zoom ?? 1, e.delta.y);
-            cx.notify();
-          }
-        })
-        .on_pinch((e, cx) => {
-          if (e.delta) {
-            state.zoom = pinchZoom(state.zoom ?? 1, e.delta);
-            cx.notify();
-          }
-        })
-        .when(state.loadingViewport, (el) =>
-          el.child(div().p(8).text_size(12).text_color(t.muted).child("正在切換網頁視角…")),
-        )
-        .children(
-          state.visual.pages.map((p) => {
-            const ratio = p.height / p.width;
-            const dispH = Math.round(dispW * ratio);
-            return image(p.path)
-              .w(dispW)
-              .h(dispH)
-              .flex_none()
-              .rounded(8)
-              .border_1()
-              .border_color(t.border)
-              .shadow_md();
-          }),
-        );
+    if (state.mode === "raw") {
+      if (state.loadingRaw || !state.editor) {
+        return div().p(16).text_color(t.muted).child("正在載入 HTML 原始碼…");
+      }
+      return codeView(state.editor);
     }
+
+    const pages = state.visual?.pages ?? [];
+    if (!pages.length) {
+      return div().p(16).text_color(t.muted).child("正在渲染網頁畫面…");
+    }
+
+    const baseMaxW = state.viewport === "mobile"
+      ? Math.min(Math.max(240, env.size.width - 36), 460)
+      : Math.max(260, Math.min(env.size.width - 36, 1200));
+    const width = Math.round(baseMaxW * (state.zoom ?? 1));
+    const height = (p) => Math.round(width * (p ? p.height / p.width : state.ratio));
+
+    const renderPageItem = (i) => {
+      const p = pages[i];
+      const h = height(p);
+      return div()
+        .h(h + GAP)
+        .w_full()
+        .flex()
+        .justify_center()
+        .pt(GAP)
+        .child(
+          div()
+            .w(width)
+            .h(h)
+            .flex_none()
+            .relative()
+            .rounded(6)
+            .overflow_hidden()
+            .border_1()
+            .border_color(t.border)
+            .shadow_md()
+            .bg("#FFFFFF")
+            .when(Boolean(p), (el) => el.child(image(p.path).w(width).h(h).flex_none()))
+            .when(pages.length > 1, (el) =>
+              el.child(
+                div()
+                  .absolute()
+                  .right(12)
+                  .bottom(10)
+                  .px(9)
+                  .py(3)
+                  .rounded(6)
+                  .bg("#18181BCC")
+                  .text_size(11)
+                  .font_semibold()
+                  .text_color("#F4F4F5")
+                  .child(`Page ${i + 1} / ${pages.length}`),
+              ),
+            ),
+        );
+    };
+
     return v_flex()
-      .id(state.id)
+      .id(`${state.id}-view`)
       .flex_1()
       .min_h(0)
-      .w_full()
-      .max_w(920)
-      .mx_auto()
-      .px(40)
-      .py(24)
-      .child(TextView.html(`${state.id}-view`, state.text).selectable(true).scrollable(true).size_full());
+      .relative()
+      .bg(t.canvas)
+      .on_mouse_down("left", () => env.focus?.())
+      .on_scroll_wheel((e, cx) => {
+        if (e.modifiers?.control || e.modifiers?.platform) {
+          state.zoom = wheelZoom(state.zoom ?? 1, e.delta.y);
+        }
+        cx.notify();
+      })
+      .on_pinch((e, cx) => {
+        if (e.delta) {
+          state.zoom = pinchZoom(state.zoom ?? 1, e.delta);
+          cx.notify();
+        }
+      })
+      .child(
+        div()
+          .id(`${state.id}-x`)
+          .size_full()
+          .overflow_x_scrollbar()
+          .child(
+            v_flex()
+              .min_w(width + 36)
+              .h_full()
+              .child(
+                v_virtual_list(
+                  state.id,
+                  pages.length,
+                  pages.map((p) => height(p) + GAP),
+                  (i) => `hp${i}`,
+                  (range) => {
+                    state.visible = range.start;
+                    return Array.from({ length: range.end - range.start }, (_, k) =>
+                      renderPageItem(range.start + k),
+                    );
+                  },
+                )
+                  .track_scroll(state.scroll)
+                  .flex_1()
+                  .min_h(0),
+              ),
+          ),
+      )
+      .child(Scrollbar.vertical(state.id).viewport_from_layout().absolute().inset_0());
   },
 
-  release: (state) => state.editor?.release(),
+  release(state) {
+    state.scroll?.release();
+    state.editor?.release();
+  },
 };

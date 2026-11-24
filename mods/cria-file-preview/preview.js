@@ -231,8 +231,26 @@ export class Preview {
     cx.notify();
   }
 
+  closePreviewAndPanel() {
+    const live = panes() ?? [];
+    const targetPane = this.paneId || live.find((p) => p.mod === "cria-file-preview" && (!this.tabId || p.tab === this.tabId))?.pane;
+    const termPane = live.find((p) => p.terminal && (!this.tabId || p.tab === this.tabId))?.pane;
+    try { run("layout.hide", { id: "panel" }); } catch {}
+    if (targetPane) {
+      try { run("pane.close", { pane: targetPane }); } catch {}
+    }
+    if (termPane) {
+      try { run("pane.focus", { pane: termPane }); } catch {}
+    }
+  }
+
   onKey(e, cx) {
     const k = (e.key || e.keystroke || "").toLowerCase();
+    if (k === "escape" || k === "esc") {
+      cx.stop_propagation();
+      this.closePreviewAndPanel();
+      return;
+    }
     if (k === "left" || k === "arrowleft" || k === "up" || k === "arrowup" || k === "[") {
       this.stepSibling(-1, cx);
       cx.stop_propagation();
