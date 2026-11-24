@@ -8,7 +8,7 @@ function cleanToken(str) {
   if (!str) return "";
   let s = String(str).trim();
   try { s = decodeURIComponent(s); } catch {}
-  s = s.replace(/#[^#]*$/, "").replace(/:\d+(?::\d+)?$/, "").replace(/[),.;'"`\]>]+$/, "");
+  s = s.replace(/\uFFFD+$/g, "").replace(/#[^#]*$/, "").replace(/:\d+(?::\d+)?$/, "").replace(/[),.;'"`\]>]+$/, "");
   return s.trim();
 }
 
@@ -89,49 +89,57 @@ export async function handleLink(click) {
     }
   }
 
-  // Fallback for agy TUI wrapped/glued links: if the path was wrapped across terminal lines or glued
-  // with a label, extract any filename or prefix fragment and resolve via Spotlight (mdfind) / find.
+  // Fallback for agy TUI truncated OSC 8 UTF-8 URIs (which end with \uFFFD after byte truncation)
+  // or wrapped/glued links: strip trailing replacement chars and match by parent directory prefix or Spotlight.
   if (!file && !on) {
     const rawStr = cleanToken(link?.url || link?.raw || link?.path || "");
     if (rawStr && !/^https?:\/\//i.test(rawStr) && !/^mailto:/i.test(rawStr)) {
       const h = (home?.() || "").replace(/[\\/]+$/, "");
       const activeSpace = spaces()?.find((s) => s.active);
-      // Extract the last path segment or filename stem
-      const afterTilde = rawStr.includes("~/") ? rawStr.slice(rawStr.lastIndexOf("~/") + 2) : rawStr;
-      const segs = afterTilde.split(/[\\/]/).filter(Boolean);
-      const lastSeg = segs[segs.length - 1] || "";
-      if (lastSeg.length >= 4) {
-        const searchDirs = [source?.cwd, activeSpace?.folder, h ? `${h}/Desktop` : null, h ? `${h}/Developer` : null].filter(Boolean);
-        const pyResolve = `
+      const searchDirs = [source?.cwd, activeSpace?.folder, h ? `${h}/Desktop` : null, h ? `${h}/Developer` : null].filter(Boolean);
+      const pyResolve = String.raw`
 import os, subprocess, sys
-frag, after_tilde, home_dir = sys.argv[1], sys.argv[2], sys.argv[3]
-dirs = [d for d in sys.argv[4:] if d and os.path.isdir(d)]
-# 1. If after_tilde has a parent folder under home_dir, glob prefix inside that parent folder
-if "/" in after_tilde and home_dir:
-    full_prefix = os.path.join(home_dir, after_tilde)
-    parent = os.path.dirname(full_prefix)
-    base_pref = os.path.basename(full_prefix)
-    if os.path.isdir(parent) and base_pref:
-        for name in sorted(os.listdir(parent)):
+cands = [c.rstrip("\ufffd").strip() for c in sys.argv[1].split("\n") if c.strip()]
+dirs = [d for d in sys.argv[2:] if d and os.path.isdir(d)]
+
+# 1. Exact parent-dir prefix match (handles OSC 8 byte-truncated UTF-8 paths like ".../Mula_首次開通統一金流")
+for cand in cands:
+    parent = os.path.dirname(cand)
+    base_pref = os.path.basename(cand)
+    if parent and os.path.isdir(parent) and len(base_pref) >= 2:
+        matches = []
+        for name in os.listdir(parent):
+            if name.startswith("~$") or name.startswith("."):
+                continue
             p = os.path.join(parent, name)
             if os.path.isfile(p) and (name.startswith(base_pref) or base_pref in name):
+                matches.append((os.path.getmtime(p), p))
+        if matches:
+            matches.sort(key=lambda x: x[0], reverse=True)
+            print(matches[0][1])
+            sys.exit(0)
+
+# 2. Spotlight mdfind fallback by last path segment
+for cand in cands:
+    frag = os.path.basename(cand)
+    if len(frag) < 4:
+        continue
+    try:
+        out = subprocess.check_output(["mdfind", "-name", frag], text=True, timeout=2).splitlines()
+        for p in out:
+            if os.path.isfile(p) and any(p.startswith(d) for d in dirs):
                 print(p)
                 sys.exit(0)
-# 2. Spotlight mdfind by filename fragment
-try:
-    out = subprocess.check_output(["mdfind", "-name", frag], text=True, timeout=2).splitlines()
-    for p in out:
-        if os.path.isfile(p) and any(p.startswith(d) for d in dirs):
-            print(p)
-            sys.exit(0)
-    for p in out:
-        if os.path.isfile(p):
-            print(p)
-            sys.exit(0)
-except Exception:
-    pass
+        for p in out:
+            if os.path.isfile(p):
+                print(p)
+                sys.exit(0)
+    except Exception:
+        pass
 `;
-        const r = await exec("python3", ["-c", pyResolve, lastSeg, afterTilde, h, ...searchDirs]).catch(() => null);
+      const candPayload = candidates.join("\n");
+      if (candPayload) {
+        const r = await exec("python3", ["-c", pyResolve, candPayload, ...searchDirs]).catch(() => null);
         const found = r?.code === 0 ? r.stdout.trim().split(/\r?\n/)[0] : "";
         if (found) file = found;
       }
