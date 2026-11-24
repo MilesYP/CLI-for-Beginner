@@ -2,15 +2,17 @@
 // around the pointer, a drag or the wheel moves it. Pure, so node --test covers it.
 
 export const ZOOMS = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2, 3, 4];
+const MIN_ZOOM = 0.05;
+const MAX_ZOOM = 8;
 
 /** The scale after one wheel turn with ctrl or cmd held: away from you zooms in, smoothly on a trackpad. */
 export function wheelZoom(scale, deltaY) {
-  return Math.min(ZOOMS.at(-1), Math.max(ZOOMS[0], scale * Math.exp(deltaY / 250)));
+  return Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, scale * Math.exp(deltaY / 250)));
 }
 
 /** The scale after one trackpad pinch step: delta > 0 zooms in, delta < 0 zooms out. */
 export function pinchZoom(scale, delta) {
-  return Math.min(ZOOMS.at(-1), Math.max(ZOOMS[0], scale * Math.exp(delta)));
+  return Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, scale * Math.exp(delta * 1.5)));
 }
 
 /** The picture's top-left corner after a zoom, keeping the point under the pointer where it was. */

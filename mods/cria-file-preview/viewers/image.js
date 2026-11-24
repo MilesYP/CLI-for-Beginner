@@ -86,8 +86,8 @@ export default {
       .on_mouse_up("left", (_e, cx) => { state.drag = null; cx.notify(); })
       // A release outside the pane never arrives here: leaving it ends the drag.
       .on_hover((inside, cx) => { if (!inside && state.drag) { state.drag = null; cx.notify(); } })
-      .on_scroll_wheel((e, cx) => { wheel(state, env, e); cx.notify(); })
-      .on_pinch((e, cx) => { pinch(state, env, e); cx.notify(); })
+      .on_scroll_wheel((e, cx) => { wheel(state, env, e); cx.stop_propagation(); cx.notify(); })
+      .on_pinch((e, cx) => { pinch(state, env, e); cx.stop_propagation(); cx.notify(); })
       .child(image(state.picture.path).absolute().left(v.offset.x).top(v.offset.y).w(v.size.width).h(v.size.height));
   },
 };

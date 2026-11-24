@@ -1,6 +1,6 @@
 // Terminal link handler for cria-file-preview: Cmd-click (Ctrl-click on Linux/Windows)
 // on any file path in terminal output opens it in cria-file-preview instead of an external app.
-import { exec, focused, home, panes, run, setShared, shared, spaces } from "herdr";
+import { exec, focused, home, notify, panes, run, setShared, shared, spaces } from "herdr";
 import { OPEN, MOVED, REQUEST, MODE_KEY, FOCUS_DIR, shownIn, openCommand } from "./open-file.js";
 import { dirname } from "./paths.js";
 
@@ -138,7 +138,15 @@ except Exception:
     }
   }
 
-  if (!file) return "pass";
+  if (!file) {
+    // If it looks like a local file/path click (not http/https) that still couldn't be resolved,
+    // record it for inspection and pass through.
+    const rawPreview = String(link?.url || link?.raw || link?.path || "");
+    if (rawPreview && !/^https?:\/\//i.test(rawPreview) && !/^mailto:/i.test(rawPreview)) {
+      setShared("cria-file-preview.lastFailedClick", { link, source, candidates, at: Date.now() });
+    }
+    return "pass";
+  }
 
   const livePanes = panes() ?? [];
   const mode = shared(MODE_KEY) || "split-right";

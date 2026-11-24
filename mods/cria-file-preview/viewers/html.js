@@ -62,7 +62,7 @@ file_url = "file://" + urllib.parse.quote(os.path.abspath(src))
 if not os.path.isfile(pdf_full):
     cmd = [
         browser,
-        "--headless",
+        "--headless=new",
         "--disable-gpu",
         "--no-pdf-header-footer",
         f"--window-size={vw},1600",
@@ -72,7 +72,26 @@ if not os.path.isfile(pdf_full):
     subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=25)
 
 if not os.path.isfile(pdf_full):
-    print(json.dumps({"rendered": False, "reason": "Headless PDF print failed"}))
+    # Fallback: capture full-viewport high-DPI PNG directly via --screenshot (works for dark/interactive SPA pages)
+    shot_name = f"{file_key}-{mtime}-{viewport}-{RENDER_VER}-shot.png"
+    shot_full = os.path.join(cache_dir, shot_name)
+    shot_cmd = [
+        browser,
+        "--headless=new",
+        "--disable-gpu",
+        "--force-device-scale-factor=2",
+        f"--window-size={vw},2200",
+        f"--screenshot={shot_full}",
+        file_url,
+    ]
+    subprocess.run(shot_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=25)
+    if os.path.isfile(shot_full):
+        res = {"rendered": True, "count": 1, "pages": [{"n": 1, "path": "data/cria-file-preview/" + shot_name, "width": vw, "height": 2200}]}
+        with open(meta_full, "w", encoding="utf-8") as mf:
+            json.dump(res, mf)
+        print(json.dumps(res))
+        sys.exit(0)
+    print(json.dumps({"rendered": False, "reason": "Headless render failed"}))
     sys.exit(0)
 
 jxa = """
