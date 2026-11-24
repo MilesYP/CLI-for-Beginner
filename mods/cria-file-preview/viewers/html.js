@@ -1,15 +1,17 @@
 // Visual HTML Viewer for cria-file-preview:
-// Renders full CSS / Flexbox / Grid / JS web pages into Retina high-DPI preview slices
-// via headless Chrome/Brave/Edge (with automatic fallback to TextView.html), supporting:
+// Supports HTML files of ANY size (including > 1 MiB files with embedded base64 images)
+// without throwing the 1 MiB text limit error.
+// Renders full CSS / Flexbox / Grid / JS web pages into Retina high-DPI preview pages
+// via headless Chrome/Brave/Edge, with:
 //   - "視覺網頁 (Visual)" | "文字 (Text)" | "Raw" modes
-//   - Desktop (1280px) / Mobile (430px) viewport toggle
+//   - Desktop (1360px) / Mobile (430px) viewport toggle
 //   - Smooth vertical scrolling + Trackpad two-finger pinch zoom (on_pinch) & Cmd+Wheel zoom
 //   - "Open in browser ↗" for full interactive testing
 
 import { div, image } from "gpui-kit";
 import { v_flex, h_flex, TextView } from "gpui-base";
 import { exec, appHome, notify, theme, window } from "herdr";
-import { readText, codeState, codeView } from "./text.js";
+import { readLongText, codeState, codeView } from "./text.js";
 import { segmented, wrapButton } from "./controls.js";
 import { zoomControl } from "./zoom.js";
 import { wheelZoom, pinchZoom } from "../pan-zoom.js";
@@ -28,11 +30,6 @@ if not os.path.isfile(src):
 mtime = int(os.path.getmtime(src))
 os.makedirs(cache_dir, exist_ok=True)
 
-vw = 430 if viewport == "mobile" else 1360
-vh = 2400 if viewport == "mobile" else 2200
-out_name = f"{file_key}-{mtime}-{viewport}.png"
-out_full = os.path.join(cache_dir, out_name)
-
 browsers = [
     "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
     "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser",
@@ -45,42 +42,70 @@ if not browser:
     print(json.dumps({"rendered": False, "reason": "No Chromium-based browser found"}))
     sys.exit(0)
 
-if not os.path.isfile(out_full):
-    file_url = "file://" + urllib.parse.quote(os.path.abspath(src))
+# Render HTML to PDF via Headless Chrome, then render pages to sharp Retina PNGs via macOS PDFKit
+# so multi-screen / 1.9MB+ long HTML documents render every section without getting cut off!
+pdf_name = f"{file_key}-{mtime}-{viewport}.pdf"
+pdf_full = os.path.join(cache_dir, pdf_name)
+meta_full = os.path.join(cache_dir, f"{file_key}-{mtime}-{viewport}.json")
+
+if os.path.isfile(meta_full):
+    try:
+        data = json.loads(open(meta_full, "r", encoding="utf-8").read())
+        if data.get("pages") and all(os.path.isfile(os.path.join(cache_dir, os.path.basename(p["path"]))) for p in data["pages"]):
+            print(json.dumps(data))
+            sys.exit(0)
+    except Exception:
+        pass
+
+vw = 430 if viewport == "mobile" else 1280
+file_url = "file://" + urllib.parse.quote(os.path.abspath(src))
+
+if not os.path.isfile(pdf_full):
     cmd = [
         browser,
         "--headless",
         "--disable-gpu",
-        "--hide-scrollbars",
-        "--force-device-scale-factor=2",
-        f"--window-size={vw},{vh}",
-        f"--screenshot={out_full}",
+        "--no-pdf-header-footer",
+        f"--window-size={vw},1600",
+        f"--print-to-pdf={pdf_full}",
         file_url,
     ]
-    subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=15)
+    subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=25)
 
-if not os.path.isfile(out_full):
-    print(json.dumps({"rendered": False, "reason": "Headless screenshot failed"}))
+if not os.path.isfile(pdf_full):
+    print(json.dumps({"rendered": False, "reason": "Headless PDF print failed"}))
     sys.exit(0)
 
-w, h = vw * 2, vh * 2
-try:
-    sips_out = subprocess.check_output(
-        ["sips", "-g", "pixelWidth", "-g", "pixelHeight", out_full],
-        text=True, stderr=subprocess.DEVNULL
-    )
-    w = int(re.search(r"pixelWidth:\s*(\d+)", sips_out).group(1))
-    h = int(re.search(r"pixelHeight:\s*(\d+)", sips_out).group(1))
-except Exception:
-    pass
+jxa = """
+ObjC.import('Foundation'); ObjC.import('AppKit'); ObjC.import('PDFKit');
+function run(argv) {
+  var source = argv[0], dir = argv[1], prefix = argv[2], wide = Number(argv[3]);
+  var fm = $.NSFileManager.defaultManager;
+  var doc = $.PDFDocument.alloc.initWithURL($.NSURL.fileURLWithPath($(source)));
+  if (!doc || doc.isNil()) throw new Error('Cannot read generated PDF');
+  var count = Math.min(Number(doc.pageCount), 30), pages = [];
+  for (var n = 1; n <= count; n++) {
+    var name = prefix + '-p' + n + '.png', path = dir + '/' + name;
+    var page = doc.pageAtIndex(n - 1), box = page.boundsForBox(1);
+    var w = box.size.width, h = box.size.height;
+    if (!fm.fileExistsAtPath($(path))) {
+      var picture = page.thumbnailOfSizeForBox($.NSMakeSize(wide, wide * h / w), 1);
+      var bitmap = $.NSBitmapImageRep.imageRepWithData(picture.TIFFRepresentation);
+      var png = bitmap.representationUsingTypeProperties($.NSBitmapImageFileTypePNG, $({}));
+      png.writeToFileAtomically($(path), true);
+    }
+    pages.push({ n: n, path: 'data/cria-file-preview/' + name, width: w, height: h });
+  }
+  return JSON.stringify({ rendered: true, count: Number(doc.pageCount), pages: pages });
+}
+"""
 
-print(json.dumps({
-    "rendered": True,
-    "path": f"data/cria-file-preview/{out_name}",
-    "width": w,
-    "height": h,
-    "viewport": viewport,
-}))
+prefix = f"{file_key}-{mtime}-{viewport}"
+wide = 1000 if viewport == "mobile" else 1600
+out = subprocess.check_output(["osascript", "-l", "JavaScript", "-e", jxa, pdf_full, cache_dir, prefix, str(wide)], text=True)
+with open(meta_full, "w", encoding="utf-8") as mf:
+    mf.write(out.strip())
+print(out.strip())
 `;
 
 function openCommand(platform, file) {
@@ -89,14 +114,14 @@ function openCommand(platform, file) {
   return ["xdg-open", [file]];
 }
 
-async function renderHtmlImage(file, viewport) {
+async function renderHtmlPages(file, viewport) {
   const dir = `${appHome().split("\\").join("/")}/data/cria-file-preview`;
   const k = key(file);
   const r = await exec("python3", ["-c", HTML_RENDER_PY, file, dir, k, viewport]).catch(() => null);
   if (!r || r.code !== 0 || !r.stdout.trim()) return null;
   try {
     const parsed = JSON.parse(r.stdout.trim());
-    return parsed?.rendered ? parsed : null;
+    return parsed?.rendered && parsed?.pages?.length ? parsed : null;
   } catch {
     return null;
   }
@@ -105,17 +130,18 @@ async function renderHtmlImage(file, viewport) {
 export default {
   id: "html",
   async load(file, env, previous) {
-    const text = await readText(file, env.on);
     const viewport = previous?.viewport ?? "desktop";
-    let visual = null;
-    if (!env.on) {
-      visual = await renderHtmlImage(file, viewport);
-      pruneCache();
-    }
+    const [longRes, visual] = await Promise.all([
+      readLongText(file, env.on).catch(() => ({ text: "", cut: true })),
+      !env.on ? renderHtmlPages(file, viewport) : Promise.resolve(null),
+    ]);
+    if (!env.on) pruneCache();
+    const text = longRes.text || "";
     const mode = previous?.mode ?? (visual ? "visual" : "text");
     return {
       file,
       text,
+      cut: Boolean(longRes.cut),
       mode, // "visual" | "text" | "raw"
       viewport, // "desktop" | "mobile"
       visual,
@@ -132,7 +158,7 @@ export default {
     state.loadingViewport = true;
     cx.notify();
     cx.spawn(async (cx) => {
-      const pic = await renderHtmlImage(state.file, nextVp);
+      const pic = await renderHtmlPages(state.file, nextVp);
       if (pic) state.visual = pic;
       state.loadingViewport = false;
       cx.notify();
@@ -188,7 +214,7 @@ export default {
                   .bg(state.viewport === "desktop" ? t.raised : t.chrome)
                   .text_color(state.viewport === "desktop" ? t.foreground : t.muted)
                   .hover((s) => s.text_color(t.foreground))
-                  .tooltip("桌面版寬度 (1360px)")
+                  .tooltip("桌面版視角")
                   .on_click((_e, cx) => this.switchViewport(state, "desktop", cx))
                   .child("🖥 桌面"),
               )
@@ -202,7 +228,7 @@ export default {
                   .bg(state.viewport === "mobile" ? t.raised : t.chrome)
                   .text_color(state.viewport === "mobile" ? t.foreground : t.muted)
                   .hover((s) => s.text_color(t.foreground))
-                  .tooltip("手機版寬度 (430px)")
+                  .tooltip("手機版視角")
                   .on_click((_e, cx) => this.switchViewport(state, "mobile", cx))
                   .child("📱 手機"),
               ),
@@ -244,14 +270,12 @@ export default {
   render(state, env) {
     const t = theme();
     if (state.mode === "raw") return codeView(state.editor);
-    if (state.mode === "visual" && state.visual) {
+    if (state.mode === "visual" && state.visual?.pages?.length) {
       const scale = state.zoom ?? 1;
       const maxFitW = state.viewport === "mobile"
-        ? Math.min(env.size.width - 32, 430)
-        : Math.max(280, env.size.width - 28);
+        ? Math.min(env.size.width - 32, 460)
+        : Math.max(280, Math.min(env.size.width - 28, 1200));
       const dispW = Math.round(maxFitW * scale);
-      const ratio = state.visual.height / state.visual.width;
-      const dispH = Math.round(dispW * ratio);
 
       return v_flex()
         .id(`${state.id}-visual-scroll`)
@@ -259,6 +283,7 @@ export default {
         .overflow_y_scrollbar()
         .overflow_x_scrollbar()
         .p(14)
+        .gap(12)
         .items_center()
         .bg(t.canvas)
         .on_scroll_wheel((e, cx) => {
@@ -276,15 +301,19 @@ export default {
         .when(state.loadingViewport, (el) =>
           el.child(div().p(8).text_size(12).text_color(t.muted).child("正在切換網頁視角…")),
         )
-        .child(
-          image(state.visual.path)
-            .w(dispW)
-            .h(dispH)
-            .flex_none()
-            .rounded(10)
-            .border_1()
-            .border_color(t.border)
-            .shadow_lg(),
+        .children(
+          state.visual.pages.map((p) => {
+            const ratio = p.height / p.width;
+            const dispH = Math.round(dispW * ratio);
+            return image(p.path)
+              .w(dispW)
+              .h(dispH)
+              .flex_none()
+              .rounded(8)
+              .border_1()
+              .border_color(t.border)
+              .shadow_md();
+          }),
         );
     }
     return v_flex()

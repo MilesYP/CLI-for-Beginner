@@ -1,31 +1,44 @@
-// PPTX / PPT presentation viewer for cria-file-preview.
-// Parses .pptx slides (titles, hierarchical bullet points, tables, embedded media images,
-// and speaker notes) using macOS/system python3 standard library (zipfile + xml.etree),
-// staging embedded images into data/cria-file-preview/ for native GPUI rendering.
-// Supports 16:9 Slide Cards view, Outline view, speaker notes toggle, trackpad pinch zoom,
-// and "Open in App" (Keynote / PowerPoint).
+// PPTX / PPT Presentation Viewer for cria-file-preview.
+// Matches Google Drive / QuickLook vertical continuous visual slide preview style:
+//   - Renders every slide at full 16:9 visual fidelity into high-DPI PNGs, stacked vertically
+//     with a bottom-right "Page X / N" badge on each slide.
+//   - Automatically uses a sibling exported .pdf if present and fresh, or converts the .pptx/.ppt
+//     via macOS QuickLook (qlmanage -p) + CoreGraphics transparent vector rendering + Headless Chrome + PDFKit.
+//   - Also provides an "大綱 (Outline)" tab extracted from the OpenXML slide structure.
+//   - Supports trackpad two-finger pinch zoom (on_pinch), Cmd+Wheel zoom, and "Open in App ↗".
 
 import { div, image } from "gpui-kit";
-import { v_flex, h_flex } from "gpui-base";
+import { v_flex, h_flex, v_virtual_list, Scrollbar, VirtualListScrollHandle, InputState, Input } from "gpui-base";
 import { exec, appHome, theme, window } from "herdr";
 import { segmented } from "./controls.js";
 import { zoomControl } from "./zoom.js";
 import { wheelZoom, pinchZoom } from "../pan-zoom.js";
 import { key, pruneCache } from "../media.js";
 
+const GAP = 18;
 let views = 0;
 
-const PPTX_PARSER_PY = String.raw`
-import json, os, re, shutil, subprocess, sys, zipfile
+const PPTX_VISUAL_PY = String.raw`
+import json, os, re, shutil, subprocess, sys, tempfile, urllib.parse, zipfile
 import xml.etree.ElementTree as ET
 
 src, cache_dir, file_key = sys.argv[1], sys.argv[2], sys.argv[3]
 if not os.path.isfile(src):
-    sys.stderr.write("File not found\n")
+    sys.stderr.write("Presentation file not found\n")
     sys.exit(1)
 
 mtime = int(os.path.getmtime(src))
 os.makedirs(cache_dir, exist_ok=True)
+meta_path = os.path.join(cache_dir, f"{file_key}-{mtime}-pptx.json")
+
+if os.path.isfile(meta_path):
+    try:
+        cached = json.loads(open(meta_path, "r", encoding="utf-8").read())
+        if cached.get("pages") and all(os.path.isfile(os.path.join(cache_dir, os.path.basename(p["path"]))) for p in cached["pages"]):
+            print(json.dumps(cached, ensure_ascii=False))
+            sys.exit(0)
+    except Exception:
+        pass
 
 NS = {
     "a": "http://schemas.openxmlformats.org/drawingml/2006/main",
@@ -33,206 +46,197 @@ NS = {
     "r": "http://schemas.openxmlformats.org/officeDocument/2006/relationships",
 }
 
-def local_tag(tag):
-    return tag.split("}", 1)[-1] if "}" in tag else tag
-
-def image_dims(path):
+def parse_outline(path):
+    if not zipfile.is_zipfile(path):
+        return []
+    out = []
     try:
-        out = subprocess.check_output(["sips", "-g", "pixelWidth", "-g", "pixelHeight", path], text=True, stderr=subprocess.DEVNULL)
-        w = int(re.search(r"pixelWidth:\s*(\d+)", out).group(1))
-        h = int(re.search(r"pixelHeight:\s*(\d+)", out).group(1))
-        return w, h
-    except Exception:
-        return 640, 360
-
-def parse_pptx(path):
-    slides_out = []
-    with zipfile.ZipFile(path, "r") as zf:
-        names = set(zf.namelist())
-        # Determine slide order from presentation.xml + rels if possible
-        slide_paths = []
-        if "ppt/presentation.xml" in names and "ppt/_rels/presentation.xml.rels" in names:
-            try:
-                rels_root = ET.fromstring(zf.read("ppt/_rels/presentation.xml.rels"))
-                rid_to_target = {}
-                for rel in rels_root:
-                    rid = rel.attrib.get("Id")
-                    target = rel.attrib.get("Target", "")
-                    if rid and target:
-                        t = target.lstrip("/")
-                        if not t.startswith("ppt/"):
-                            t = "ppt/" + t
-                        rid_to_target[rid] = t
-                pres_root = ET.fromstring(zf.read("ppt/presentation.xml"))
-                for sldId in pres_root.findall(".//p:sldId", NS):
-                    rid = sldId.attrib.get(f"{{{NS['r']}}}id")
-                    t = rid_to_target.get(rid)
-                    if t and t in names:
-                        slide_paths.append(t)
-            except Exception:
-                slide_paths = []
-
-        if not slide_paths:
-            slide_paths = sorted(
-                [n for n in names if re.match(r"^ppt/slides/slide\d+\.xml$", n)],
-                key=lambda x: int(re.search(r"slide(\d+)\.xml$", x).group(1)),
-            )
-
-        for idx, spath in enumerate(slide_paths, start=1):
-            sroot = ET.fromstring(zf.read(spath))
-            sname = os.path.basename(spath)
-            rels_path = f"ppt/slides/_rels/{sname}.rels"
-            rid_map = {}
-            notes_target = None
-            if rels_path in names:
+        with zipfile.ZipFile(path, "r") as zf:
+            names = set(zf.namelist())
+            slide_paths = []
+            if "ppt/presentation.xml" in names and "ppt/_rels/presentation.xml.rels" in names:
                 try:
-                    rroot = ET.fromstring(zf.read(rels_path))
-                    for rel in rroot:
+                    rels_root = ET.fromstring(zf.read("ppt/_rels/presentation.xml.rels"))
+                    rid_to_target = {}
+                    for rel in rels_root:
                         rid = rel.attrib.get("Id")
-                        target = rel.attrib.get("Target", "")
-                        rtype = rel.attrib.get("Type", "")
-                        norm = os.path.normpath(os.path.join("ppt/slides", target)).replace("\\", "/")
-                        if rid:
-                            rid_map[rid] = norm
-                        if "notesSlide" in rtype and norm in names:
-                            notes_target = norm
+                        target = rel.attrib.get("Target", "").lstrip("/")
+                        if rid and target:
+                            if not target.startswith("ppt/"):
+                                target = "ppt/" + target
+                            rid_to_target[rid] = target
+                    pres_root = ET.fromstring(zf.read("ppt/presentation.xml"))
+                    for sldId in pres_root.findall(".//p:sldId", NS):
+                        rid = sldId.attrib.get(f"{{{NS['r']}}}id")
+                        t = rid_to_target.get(rid)
+                        if t and t in names:
+                            slide_paths.append(t)
                 except Exception:
-                    pass
+                    slide_paths = []
+            if not slide_paths:
+                slide_paths = sorted(
+                    [n for n in names if re.match(r"^ppt/slides/slide\d+\.xml$", n)],
+                    key=lambda x: int(re.search(r"slide(\d+)\.xml$", x).group(1)),
+                )
+            for idx, spath in enumerate(slide_paths, start=1):
+                sroot = ET.fromstring(zf.read(spath))
+                title = ""
+                bullets = []
+                for sp in sroot.findall(".//p:sp", NS):
+                    ph = sp.find(".//p:nvSpPr/p:nvPr/p:ph", NS)
+                    ph_type = ph.attrib.get("type", "") if ph is not None else ""
+                    is_title = ph_type in ("title", "ctrTitle")
+                    paras = []
+                    for p_el in sp.findall(".//a:p", NS):
+                        texts = [t_el.text for t_el in p_el.findall(".//a:t", NS) if t_el.text]
+                        line = " ".join("".join(texts).split())
+                        if line:
+                            paras.append(line)
+                    if not paras:
+                        continue
+                    if len(paras) == 1 and (paras[0].isdigit() or "Confidential" in paras[0]):
+                        continue
+                    if is_title and not title:
+                        title = " ".join(paras)
+                    elif not title and len(paras) == 1 and len(paras[0]) <= 65:
+                        title = paras[0]
+                    else:
+                        for line in paras:
+                            if line != title and "Confidential" not in line and not line.isdigit():
+                                bullets.append(line)
+                out.append({"n": idx, "title": title or f"Slide {idx}", "summary": " · ".join(bullets[:6])})
+    except Exception:
+        pass
+    return out
 
-            title = ""
-            subtitle = ""
-            bullets = []
-            tables = []
-            images = []
+SWIFT_VEC_TO_PNG = """
+import Foundation
+import CoreGraphics
+import ImageIO
 
-            # Walk shapes in spTree (note: in PresentationML, txBody is p:txBody, and paragraphs are a:p)
-            for sp in sroot.findall(".//p:sp", NS):
-                ph = sp.find(".//p:nvSpPr/p:nvPr/p:ph", NS)
-                ph_type = ph.attrib.get("type", "") if ph is not None else ""
-                is_title = ph_type in ("title", "ctrTitle")
-                is_sub = ph_type in ("subTitle", "body") and not title and idx == 1
+let dir = CommandLine.arguments[1]
+let fm = FileManager.default
+if let items = try? fm.contentsOfDirectory(atPath: dir) {
+    for name in items where name.hasSuffix(".pdf") {
+        let pdfPath = dir + "/" + name
+        let pngPath = dir + "/" + String(name.dropLast(4)) + "_vec.png"
+        if fm.fileExists(atPath: pngPath) { continue }
+        guard let doc = CGPDFDocument(URL(fileURLWithPath: pdfPath) as CFURL),
+              let page = doc.page(at: 1) else { continue }
+        let box = page.getBoxRect(.mediaBox)
+        let w = max(16, Int(box.width * 2.0))
+        let h = max(16, Int(box.height * 2.0))
+        let colorSpace = CGColorSpaceCreateDeviceRGB()
+        guard let ctx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: 0,
+                                  space: colorSpace, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { continue }
+        ctx.scaleBy(x: 2.0, y: 2.0)
+        ctx.drawPDFPage(page)
+        guard let cgImg = ctx.makeImage(),
+              let dest = CGImageDestinationCreateWithURL(URL(fileURLWithPath: pngPath) as CFURL, "public.png" as CFString, 1, nil) else { continue }
+        CGImageDestinationAddImage(dest, cgImg, nil)
+        CGImageDestinationFinalize(dest)
+    }
+}
+"""
 
-                paras = []
-                for p_el in sp.findall(".//a:p", NS):
-                    pPr = p_el.find("a:pPr", NS)
-                    lvl = int(pPr.attrib.get("lvl", "0")) if pPr is not None and pPr.attrib.get("lvl", "").isdigit() else 0
-                    texts = [t_el.text for t_el in p_el.findall(".//a:t", NS) if t_el.text]
-                    line = " ".join("".join(texts).split())
-                    if line:
-                        paras.append((lvl, line))
+def build_pdf_from_pptx(pptx_path, target_pdf):
+    # 1. Check if an exported sibling .pdf exists right next to the .pptx (e.g. exported by PowerPoint/Keynote)
+    stem = os.path.splitext(pptx_path)[0]
+    for cand in (stem + ".pdf", stem + ".PDF"):
+        if os.path.isfile(cand) and os.path.getmtime(cand) >= os.path.getmtime(pptx_path) - 86400:
+            shutil.copyfile(cand, target_pdf)
+            return True
 
-                if not paras:
-                    continue
-                # Skip footer boilerplate like "Wadiz x CLICKFORCE | Confidential" or pure slide numbers
-                if len(paras) == 1 and (paras[0][1].isdigit() or "Confidential" in paras[0][1]):
-                    continue
-                if is_title and not title:
-                    title = " ".join(t for _, t in paras)
-                elif is_sub and not subtitle:
-                    subtitle = " ".join(t for _, t in paras)
-                elif not title and len(paras) == 1 and len(paras[0][1]) <= 65:
-                    title = paras[0][1]
-                elif not subtitle and title and len(bullets) == 0 and len(paras) == 1 and len(paras[0][1]) <= 110:
-                    subtitle = paras[0][1]
-                else:
-                    for lvl, line in paras:
-                        if line != title and line != subtitle and "Confidential" not in line and not line.isdigit():
-                            bullets.append({"level": lvl, "text": line})
+    # 2. Otherwise convert via macOS QuickLook (qlmanage -p) + CoreGraphics transparent vector PNGs + Headless Chrome
+    browsers = [
+        "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+        "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser",
+        "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
+    ]
+    browser = next((b for b in browsers if os.path.isfile(b)), None)
+    if not browser:
+        return False
 
-            # Fallback if no title placeholder found: promote first short line
-            if not title and bullets:
-                first = bullets[0]["text"]
-                if len(first) <= 60:
-                    title = first
-                    bullets = bullets[1:]
+    tmp_dir = tempfile.mkdtemp(prefix="herdr_pptx_")
+    try:
+        subprocess.run(["qlmanage", "-p", "-o", tmp_dir, pptx_path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=20)
+        ql_dirs = [os.path.join(tmp_dir, d) for d in os.listdir(tmp_dir) if d.endswith(".qlpreview")]
+        if not ql_dirs:
+            return False
+        ql_dir = ql_dirs[0]
+        html_path = os.path.join(ql_dir, "Preview.html")
+        if not os.path.isfile(html_path):
+            return False
 
-            # Extract tables
-            for tbl in sroot.findall(".//a:tbl", NS):
-                rows_data = []
-                for tr in tbl.findall("a:tr", NS):
-                    row_cells = []
-                    for tc in tr.findall("a:tc", NS):
-                        cell_texts = [t_el.text for t_el in tc.findall(".//a:t", NS) if t_el.text]
-                        row_cells.append(" ".join("".join(cell_texts).split()))
-                    if any(row_cells):
-                        rows_data.append(row_cells)
-                if rows_data:
-                    tables.append(rows_data)
+        subprocess.run(["swift", "-e", SWIFT_VEC_TO_PNG, ql_dir], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=25)
+        with open(html_path, "r", encoding="utf-8", errors="ignore") as f:
+            html = f.read()
+        html = re.sub(r"(Attachment\d+)\.pdf", r"\1_vec.png", html)
+        m = re.search(r"div\.slide,\s*div\.loading-slide\s*\{\s*width:\s*(\d+);\s*height:\s*(\d+);", html)
+        sw, sh = (int(m.group(1)), int(m.group(2))) if m else (720, 405)
+        print_css = f"""
+        <style>
+        @page {{ size: {sw}px {sh}px; margin: 0; }}
+        html, body {{ margin: 0 !important; padding: 0 !important; background: #fff !important; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }}
+        div.slide {{ margin: 0 !important; page-break-after: always !important; break-after: page !important; box-shadow: none !important; -webkit-box-shadow: none !important; }}
+        div.loading-slide {{ display: none !important; }}
+        </style>
+        """
+        html = html.replace("</head>", print_css + "</head>", 1)
+        patched = os.path.join(ql_dir, "Preview_render.html")
+        with open(patched, "w", encoding="utf-8") as f:
+            f.write(html)
+        file_url = "file://" + urllib.parse.quote(os.path.abspath(patched))
+        subprocess.run([
+            browser, "--headless", "--disable-gpu", "--no-pdf-header-footer",
+            f"--print-to-pdf={target_pdf}", file_url
+        ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=25)
+        return os.path.isfile(target_pdf)
+    finally:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
 
-            # Extract embedded pictures
-            img_idx = 0
-            for blip in sroot.findall(".//a:blip", NS):
-                embed_id = blip.attrib.get(f"{{{NS['r']}}}embed")
-                media_path = rid_map.get(embed_id)
-                if not media_path or media_path not in names:
-                    continue
-                ext = os.path.splitext(media_path)[1].lower().lstrip(".")
-                if ext not in ("png", "jpg", "jpeg", "gif", "webp", "svg", "bmp", "tiff"):
-                    continue
-                img_idx += 1
-                out_name = f"{file_key}-{mtime}-s{idx}-i{img_idx}.{ext}"
-                out_full = os.path.join(cache_dir, out_name)
-                if not os.path.isfile(out_full):
-                    with zf.open(media_path) as src_f, open(out_full, "wb") as dst_f:
-                        shutil.copyfileobj(src_f, dst_f)
-                w, h = image_dims(out_full)
-                images.append({
-                    "path": f"data/cria-file-preview/{out_name}",
-                    "width": w,
-                    "height": h,
-                })
+pdf_cache = os.path.join(cache_dir, f"{file_key}-{mtime}-slides.pdf")
+if not os.path.isfile(pdf_cache):
+    build_pdf_from_pptx(src, pdf_cache)
 
-            # Extract speaker notes
-            notes_lines = []
-            if notes_target and notes_target in names:
-                try:
-                    nroot = ET.fromstring(zf.read(notes_target))
-                    for sp in nroot.findall(".//p:sp", NS):
-                        ph = sp.find(".//p:nvSpPr/p:nvPr/p:ph", NS)
-                        ph_type = ph.attrib.get("type", "") if ph is not None else ""
-                        if ph_type in ("sldImg", "sldNum", "hdr", "ftr"):
-                            continue
-                        for p_el in sp.findall(".//a:txBody/a:p", NS):
-                            texts = [t_el.text for t_el in p_el.findall(".//a:t", NS) if t_el.text]
-                            line = "".join(texts).strip()
-                            if line and not line.isdigit():
-                                notes_lines.append(line)
-                except Exception:
-                    pass
+pages = []
+if os.path.isfile(pdf_cache):
+    jxa = """
+    ObjC.import('Foundation'); ObjC.import('AppKit'); ObjC.import('PDFKit');
+    function run(argv) {
+      var source = argv[0], dir = argv[1], prefix = argv[2], wide = Number(argv[3]);
+      var fm = $.NSFileManager.defaultManager;
+      var doc = $.PDFDocument.alloc.initWithURL($.NSURL.fileURLWithPath($(source)));
+      if (!doc || doc.isNil()) return "[]";
+      var count = Math.min(Number(doc.pageCount), 200), out = [];
+      for (var n = 1; n <= count; n++) {
+        var name = prefix + '-s' + n + '.png', path = dir + '/' + name;
+        var page = doc.pageAtIndex(n - 1), box = page.boundsForBox(1);
+        var w = box.size.width, h = box.size.height;
+        if (!fm.fileExistsAtPath($(path))) {
+          var picture = page.thumbnailOfSizeForBox($.NSMakeSize(wide, wide * h / w), 1);
+          var bitmap = $.NSBitmapImageRep.imageRepWithData(picture.TIFFRepresentation);
+          var png = bitmap.representationUsingTypeProperties($.NSBitmapImageFileTypePNG, $({}));
+          png.writeToFileAtomically($(path), true);
+        }
+        out.push({ n: n, path: 'data/cria-file-preview/' + name, width: w, height: h });
+      }
+      return JSON.stringify(out);
+    }
+    """
+    prefix = f"{file_key}-{mtime}"
+    raw_pages = subprocess.check_output(["osascript", "-l", "JavaScript", "-e", jxa, pdf_cache, cache_dir, prefix, "1600"], text=True)
+    pages = json.loads(raw_pages.strip())
 
-            slides_out.append({
-                "n": idx,
-                "title": title or f"Slide {idx}",
-                "subtitle": subtitle,
-                "bullets": bullets,
-                "tables": tables,
-                "images": images,
-                "notes": "\n".join(notes_lines),
-            })
-    return slides_out
-
-try:
-    if zipfile.is_zipfile(src):
-        slides = parse_pptx(src)
-        print(json.dumps({"format": "pptx", "count": len(slides), "slides": slides}, ensure_ascii=False))
-    else:
-        # Legacy binary .ppt fallback: extract readable strings
-        raw = open(src, "rb").read()
-        utf16_chunks = [m.group(0).decode("utf-16le", errors="ignore").strip() for m in re.finditer(rb"(?:[\x20-\x7e\u4e00-\u9fff]\x00){4,}", raw)]
-        lines = [c for c in utf16_chunks if len(c) >= 3 and not c.startswith("Microsoft") and "PowerPoint" not in c][:60]
-        slides = [{
-            "n": 1,
-            "title": os.path.basename(src) + " (舊版 .ppt 格式)",
-            "subtitle": "建議另存為 .pptx 或點擊右上角 Open in App 以 Keynote / PowerPoint 開啟",
-            "bullets": [{"level": 0, "text": l} for l in lines],
-            "tables": [],
-            "images": [],
-            "notes": "",
-        }]
-        print(json.dumps({"format": "ppt", "count": 1, "slides": slides}, ensure_ascii=False))
-except Exception as e:
-    sys.stderr.write(f"Cannot parse presentation: {e}\n")
-    sys.exit(1)
+outline = parse_outline(src)
+result = {
+    "count": len(pages) or len(outline) or 1,
+    "pages": pages,
+    "outline": outline,
+}
+with open(meta_path, "w", encoding="utf-8") as mf:
+    json.dump(result, mf, ensure_ascii=False)
+print(json.dumps(result, ensure_ascii=False))
 `;
 
 function openExternalApp(file, on) {
@@ -243,36 +247,55 @@ function openExternalApp(file, on) {
   else exec("xdg-open", [file]).catch(() => null);
 }
 
+function jump(state, n) {
+  n = Math.max(1, Math.min(state.count, n));
+  state.visible = n - 1;
+  state.scroll.scroll_to_item(n - 1, "top");
+}
+
 export default {
   id: "pptx",
   async load(file, env, previous) {
     if (env.on) throw new Error("PPTX previews work for files on this computer only");
     const dir = `${appHome().split("\\").join("/")}/data/cria-file-preview`;
     const k = key(file);
-    const r = await exec("python3", ["-c", PPTX_PARSER_PY, file, dir, k]);
+    const r = await exec("python3", ["-c", PPTX_VISUAL_PY, file, dir, k]);
     if (r.code !== 0) throw new Error(r.stderr.trim() || "Cannot read this presentation");
     pruneCache();
     const parsed = JSON.parse(r.stdout.trim());
-    const slides = parsed.slides?.length ? parsed.slides : [{
-      n: 1, title: "Empty presentation", subtitle: "", bullets: [], tables: [], images: [], notes: ""
-    }];
-    const current = Math.max(1, Math.min(slides.length, previous?.current ?? 1));
-    return {
+    const pages = parsed.pages ?? [];
+    const outline = parsed.outline ?? [];
+    const count = pages.length || outline.length || 1;
+    const ratio = pages[0] ? pages[0].height / pages[0].width : 9 / 16;
+    const state = {
       file,
-      count: slides.length,
-      slides,
-      current,
-      mode: previous?.mode ?? "slide", // "slide" | "all" | "outline"
-      showNotes: previous?.showNotes ?? true,
+      count,
+      pages,
+      outline,
+      ratio,
+      mode: previous?.mode ?? "slides", // "slides" | "outline"
+      visible: 0,
       zoom: previous?.zoom ?? null,
       id: `cria-file-preview-pptx-${++views}`,
+      scroll: VirtualListScrollHandle.new(),
+      goto: InputState.new({ placeholder: "Go to" }),
     };
+    state.goto.on("submit", (_e, cx) => {
+      const n = parseInt(state.goto.value(), 10);
+      if (n > 0) {
+        state.mode = "slides";
+        jump(state, n);
+      }
+      state.goto.set_value("");
+      cx.notify();
+    });
+    return state;
   },
 
   toolbar(state, env) {
     const t = theme();
-    const cur = state.current, total = state.count;
-    const step = (id, label, target) =>
+    const page = state.visible + 1, last = state.count;
+    const step = (id, label, n) =>
       div()
         .id(`pptx-${id}`)
         .w(24)
@@ -281,14 +304,14 @@ export default {
         .items_center()
         .justify_center()
         .rounded(5)
-        .text_color(target >= 1 && target <= total ? t.muted : t.dim)
-        .when(target >= 1 && target <= total, (el) =>
+        .text_color(n >= 1 && n <= last ? t.muted : t.dim)
+        .when(n >= 1 && n <= last, (el) =>
           el
             .cursor_pointer()
             .hover((s) => s.bg(t.hover).text_color(t.foreground))
             .on_click((_e, cx) => {
-              state.current = target;
-              if (state.mode === "outline") state.mode = "slide";
+              state.mode = "slides";
+              jump(state, n);
               cx.notify();
             }),
         )
@@ -300,8 +323,7 @@ export default {
       .text_size(12)
       .child(
         segmented([
-          ["pptx-slide", "單頁", state.mode === "slide", () => { state.mode = "slide"; }],
-          ["pptx-all", "連續", state.mode === "all", () => { state.mode = "all"; }],
+          ["pptx-slides", "投影片", state.mode === "slides", () => { state.mode = "slides"; }],
           ["pptx-outline", "大綱", state.mode === "outline", () => { state.mode = "outline"; }],
         ]),
       )
@@ -312,9 +334,9 @@ export default {
           .rounded(7)
           .bg(t.chrome)
           .items_center()
-          .child(step("prev", "‹", cur - 1))
-          .child(div().min_w(54).text_center().text_color(t.foreground).child(`${cur} / ${total}`))
-          .child(step("next", "›", cur + 1)),
+          .child(step("prev", "‹", page - 1))
+          .child(div().min_w(58).text_center().text_color(t.foreground).child(`${page} / ${state.count}`))
+          .child(step("next", "›", page + 1)),
       )
       .child(zoomControl(state, state.zoom ?? 1))
       .child(
@@ -327,7 +349,7 @@ export default {
           .bg(t.raised)
           .text_color(t.foreground)
           .hover((s) => s.bg(t.hover))
-          .tooltip("以 Keynote 或 PowerPoint 開啟原始簡報")
+          .tooltip("以 Microsoft PowerPoint 或 Keynote 開啟原始簡報")
           .on_click(() => openExternalApp(env.file, env.on))
           .child("Open in App ↗"),
       );
@@ -335,180 +357,7 @@ export default {
 
   render(state, env) {
     const t = theme();
-    const scale = state.zoom ?? 1;
-    const cardW = Math.max(280, Math.min(env.size.width - 40, 920) * scale);
-
-    const renderSlideCard = (s, isCurrent) => {
-      const hasNotes = Boolean(state.showNotes && s.notes);
-      return v_flex()
-        .id(`${state.id}-card-${s.n}`)
-        .w(cardW)
-        .min_h(Math.round(cardW * 0.5625))
-        .flex_none()
-        .rounded(12)
-        .bg(t.surface)
-        .border_1()
-        .border_color(isCurrent ? t.accent : t.border)
-        .shadow_md()
-        .overflow_hidden()
-        // Top slide accent bar + slide number header
-        .child(
-          h_flex()
-            .w_full()
-            .h(36)
-            .px(18)
-            .items_center()
-            .justify_between()
-            .bg(t.raised)
-            .border_b(1)
-            .border_color(t.border)
-            .child(
-              h_flex()
-                .gap(8)
-                .items_center()
-                .child(
-                  div()
-                    .px(7)
-                    .py(1)
-                    .rounded(5)
-                    .bg(t.selected)
-                    .text_size(11)
-                    .font_semibold()
-                    .text_color(t.accent)
-                    .child(`SLIDE ${s.n}`),
-                )
-                .when(Boolean(s.subtitle), (el) =>
-                  el.child(div().text_size(11.5).text_color(t.muted).truncate().child(s.subtitle)),
-                ),
-            )
-            .child(div().text_size(11).text_color(t.dim).child(`${s.n} / ${state.count}`)),
-        )
-        // Slide main body
-        .child(
-          v_flex()
-            .flex_1()
-            .p(Math.round(22 * scale))
-            .gap(Math.round(14 * scale))
-            .child(
-              div()
-                .text_size(Math.round(21 * scale))
-                .font_bold()
-                .text_color(t.foreground)
-                .child(s.title),
-            )
-            .when(Boolean(s.subtitle), (el) =>
-              el.child(
-                div()
-                  .text_size(Math.round(14.5 * scale))
-                  .text_color(t.muted)
-                  .child(s.subtitle),
-              ),
-            )
-            // Bullet points
-            .when(s.bullets?.length > 0, (el) =>
-              el.child(
-                v_flex()
-                  .gap(Math.round(8 * scale))
-                  .children(
-                    s.bullets.map((b) => {
-                      const lvl = Math.min(4, b.level || 0);
-                      const marker = lvl === 0 ? "●" : lvl === 1 ? "○" : "▪";
-                      return h_flex()
-                        .pl(lvl * Math.round(18 * scale))
-                        .gap(8)
-                        .items_start()
-                        .child(
-                          div()
-                            .text_size(Math.round(11 * scale))
-                            .text_color(lvl === 0 ? t.accent : t.dim)
-                            .mt(2)
-                            .child(marker),
-                        )
-                        .child(
-                          div()
-                            .flex_1()
-                            .text_size(Math.round((lvl === 0 ? 14.5 : 13.5) * scale))
-                            .text_color(lvl === 0 ? t.foreground : t.muted)
-                            .child(b.text),
-                        );
-                    }),
-                  ),
-              ),
-            )
-            // Embedded images
-            .when(s.images?.length > 0, (el) =>
-              el.child(
-                h_flex()
-                  .flex_wrap()
-                  .gap(12)
-                  .pt(6)
-                  .children(
-                    s.images.map((img) => {
-                      const maxW = Math.min(cardW - 60, Math.round(360 * scale));
-                      const ratio = img.height && img.width ? img.height / img.width : 0.6;
-                      const w = Math.max(120, Math.min(maxW, Math.round(img.width * scale)));
-                      const h = Math.round(w * ratio);
-                      return image(img.path).w(w).h(h).flex_none().rounded(8).border_1().border_color(t.border);
-                    }),
-                  ),
-              ),
-            )
-            // Tables
-            .when(s.tables?.length > 0, (el) =>
-              el.children(
-                s.tables.map((tbl) =>
-                  v_flex()
-                    .mt(6)
-                    .rounded(8)
-                    .border_1()
-                    .border_color(t.border)
-                    .overflow_hidden()
-                    .children(
-                      tbl.map((row, rIdx) =>
-                        h_flex()
-                          .w_full()
-                          .bg(rIdx === 0 ? t.raised : t.background)
-                          .border_b(rIdx < tbl.length - 1 ? 1 : 0)
-                          .border_color(t.border)
-                          .children(
-                            row.map((cell) =>
-                              div()
-                                .flex_1()
-                                .px(10)
-                                .py(6)
-                                .text_size(Math.round(12.5 * scale))
-                                .font_weight(rIdx === 0 ? "semibold" : "normal")
-                                .text_color(rIdx === 0 ? t.foreground : t.muted)
-                                .child(cell || " "),
-                            ),
-                          ),
-                      ),
-                    ),
-                ),
-              ),
-            )
-            .when(!s.bullets?.length && !s.images?.length && !s.tables?.length && !s.subtitle, (el) =>
-              el.child(div().text_size(13).text_color(t.dim).child("（此頁投影片僅含背景或自訂圖形）")),
-            ),
-        )
-        // Speaker Notes footer
-        .when(hasNotes, (el) =>
-          el.child(
-            v_flex()
-              .w_full()
-              .px(18)
-              .py(10)
-              .gap(4)
-              .bg(t.chrome)
-              .border_t(1)
-              .border_color(t.border)
-              .child(div().text_size(11).font_semibold().text_color(t.dim).child("📝 講者備忘稿 (Speaker Notes)"))
-              .child(div().text_size(12.5).text_color(t.muted).child(s.notes)),
-          ),
-        );
-    };
-
-    if (state.mode === "outline") {
+    if (state.mode === "outline" || !state.pages.length) {
       return v_flex()
         .id(`${state.id}-outline`)
         .size_full()
@@ -517,7 +366,7 @@ export default {
         .gap(8)
         .bg(t.canvas)
         .children(
-          state.slides.map((s) =>
+          state.outline.map((s) =>
             h_flex()
               .id(`${state.id}-out-${s.n}`)
               .w_full()
@@ -526,13 +375,13 @@ export default {
               .rounded(9)
               .items_center()
               .cursor_pointer()
-              .bg(s.n === state.current ? t.selected : t.surface)
+              .bg(s.n === state.visible + 1 ? t.selected : t.surface)
               .border_1()
-              .border_color(s.n === state.current ? t.accent : t.border)
+              .border_color(s.n === state.visible + 1 ? t.accent : t.border)
               .hover((st) => st.bg(t.hover))
               .on_click((_e, cx) => {
-                state.current = s.n;
-                state.mode = "slide";
+                state.mode = "slides";
+                jump(state, s.n);
                 cx.notify();
               })
               .child(
@@ -555,39 +404,69 @@ export default {
                   .min_w(0)
                   .gap(2)
                   .child(div().font_semibold().text_size(13.5).text_color(t.foreground).truncate().child(s.title))
-                  .when(s.bullets?.length > 0, (el) =>
-                    el.child(
-                      div()
-                        .text_size(12)
-                        .text_color(t.muted)
-                        .truncate()
-                        .child(s.bullets.map((b) => b.text).join(" · ")),
-                    ),
+                  .when(Boolean(s.summary), (el) =>
+                    el.child(div().text_size(12).text_color(t.muted).truncate().child(s.summary)),
                   ),
               ),
           ),
         );
     }
 
-    const shownSlides =
-      state.mode === "all"
-        ? state.slides
-        : [state.slides[state.current - 1] ?? state.slides[0]];
+    const width = Math.max(200, (Math.min(env.size.width, 1200) - 36) * (state.zoom ?? 1));
+    const height = (p) => Math.round(width * (p ? p.height / p.width : state.ratio));
+
+    const slideItem = (i) => {
+      const p = state.pages[i];
+      const h = height(p);
+      return div()
+        .h(h + GAP)
+        .w_full()
+        .flex()
+        .justify_center()
+        .pt(GAP)
+        .child(
+          div()
+            .w(width)
+            .h(h)
+            .flex_none()
+            .relative()
+            .rounded(6)
+            .overflow_hidden()
+            .shadow_lg()
+            .border_1()
+            .border_color(t.border)
+            .child(image(p.path).w(width).h(h).flex_none())
+            // Google Drive-style bottom-right "Page X / N" badge
+            .child(
+              div()
+                .absolute()
+                .right(12)
+                .bottom(10)
+                .px(10)
+                .py(4)
+                .rounded(6)
+                .bg("#14171fd9")
+                .border_1()
+                .border_color("#ffffff22")
+                .text_size(12)
+                .font_semibold()
+                .text_color("#ffffff")
+                .child(`Page ${i + 1} / ${state.count}`),
+            ),
+        );
+    };
 
     return v_flex()
       .id(`${state.id}-view`)
-      .size_full()
-      .overflow_y_scrollbar()
-      .overflow_x_scrollbar()
-      .p(20)
-      .gap(20)
-      .items_center()
-      .bg(t.canvas)
+      .flex_1()
+      .min_h(0)
+      .relative()
+      .bg("#0d0f14")
       .on_scroll_wheel((e, cx) => {
         if (e.modifiers?.control || e.modifiers?.platform) {
           state.zoom = wheelZoom(state.zoom ?? 1, e.delta.y);
-          cx.notify();
         }
+        cx.notify();
       })
       .on_pinch((e, cx) => {
         if (e.delta) {
@@ -595,6 +474,37 @@ export default {
           cx.notify();
         }
       })
-      .children(shownSlides.map((s) => renderSlideCard(s, s.n === state.current)));
+      .child(
+        div()
+          .id(`${state.id}-x`)
+          .size_full()
+          .overflow_x_scrollbar()
+          .child(
+            v_flex()
+              .min_w(width + 36)
+              .h_full()
+              .child(
+                v_virtual_list(
+                  state.id,
+                  state.pages.length,
+                  state.pages.map((p) => height(p) + GAP),
+                  (i) => `s${i}`,
+                  (range) => {
+                    state.visible = range.start;
+                    return Array.from({ length: range.end - range.start }, (_, k) => slideItem(range.start + k));
+                  },
+                )
+                  .track_scroll(state.scroll)
+                  .flex_1()
+                  .min_h(0),
+              ),
+          ),
+      )
+      .child(Scrollbar.vertical(state.id).viewport_from_layout().absolute().inset_0());
+  },
+
+  release(state) {
+    state.scroll?.release();
+    state.goto?.release();
   },
 };
