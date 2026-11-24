@@ -3,7 +3,7 @@
 // with ctrl or cmd held zooms around the pointer.
 import { div, image } from "gpui-kit";
 import { h_flex } from "gpui-base";
-import { theme, settings } from "herdr";
+import { theme, settings, setShared } from "herdr";
 import { stageImage, pruneCache } from "../media.js";
 import { zoomControl } from "./zoom.js";
 import { wheelZoom, pinchZoom, zoomAt, placed, offsetFor, focusAt } from "../pan-zoom.js";
@@ -41,11 +41,23 @@ function wheel(state, env, e) {
   }
 }
 
+let lastPinchLog = 0;
+
 function pinch(state, env, e) {
-  if (!e.delta) return;
+  const now = Date.now();
+  if (now - lastPinchLog > 800) {
+    lastPinchLog = now;
+    try { setShared("cria-file-preview.lastPinch", { delta: e?.delta, phase: e?.touch_phase, local: e?.local_position, keys: Object.keys(e || {}), at: now }); } catch {}
+  }
+  const delta = typeof e?.delta === "number" ? e.delta : (typeof e?.magnification === "number" ? e.magnification : 0);
+  if (!delta) return;
   const v = view(state, env);
-  const to = pinchZoom(v.scale, e.delta), size = { width: state.picture.width * to, height: state.picture.height * to };
-  const point = e.local_position ? { x: e.local_position.x / unit(), y: e.local_position.y / unit() } : { x: v.pane.width / 2, y: v.pane.height / 2 };
+  const to = pinchZoom(v.scale, delta);
+  const size = { width: state.picture.width * to, height: state.picture.height * to };
+  const lx = e?.local_position?.x, ly = e?.local_position?.y;
+  const point = (Number.isFinite(lx) && Number.isFinite(ly))
+    ? { x: lx / unit(), y: ly / unit() }
+    : { x: v.pane.width / 2, y: v.pane.height / 2 };
   state.zoom = to;
   moveTo(state, zoomAt(v.offset, v.scale, to, point), size, v.pane);
 }
@@ -86,8 +98,8 @@ export default {
       .on_mouse_up("left", (_e, cx) => { state.drag = null; cx.notify(); })
       // A release outside the pane never arrives here: leaving it ends the drag.
       .on_hover((inside, cx) => { if (!inside && state.drag) { state.drag = null; cx.notify(); } })
-      .on_scroll_wheel((e, cx) => { wheel(state, env, e); cx.stop_propagation(); cx.notify(); })
-      .on_pinch((e, cx) => { pinch(state, env, e); cx.stop_propagation(); cx.notify(); })
+      .on_scroll_wheel((e, cx) => { wheel(state, env, e); cx.notify(); })
+      .on_pinch((e, cx) => { pinch(state, env, e); cx.notify(); })
       .child(image(state.picture.path).absolute().left(v.offset.x).top(v.offset.y).w(v.size.width).h(v.size.height));
   },
 };
