@@ -91,6 +91,7 @@ sh uninstall.sh               # 切回 main 並移除；資料檔保留
 - **`Auto` 自動預覽與 PPT 簡報預覽（`.pptx` / `.ppt`）**：
   - 點 `Files` 右上角 **`Auto`** 可展開類型篩選列（圖片／PDF/PPT／HTML／MD／影音／略過系統MD），當 agent 產出新檔案時會自動在並排預覽框更新。
   - **PPT / PPTX 簡報預覽器（`cria-file-preview/viewers/pptx.js`）**：點擊 `.pptx` 或 `.ppt` 即可在並排預覽框以 **16:9 投影片卡片**預覽（自動提取標題、多層級條列重點、表格、內嵌圖片與講者備忘稿），支援 **`單頁 | 連續 | 大綱`** 三種模式、`‹ 1 / N ›` 上下頁切換、觸控板兩指捏合縮放，以及 **`Open in App ↗`** 一鍵以 Keynote / PowerPoint 開啟。
+  - **視覺化 HTML 網頁閱覽器（`cria-file-preview/viewers/html.js`）**：點擊 `.html` 檔案時，預設以 **Retina 2x 完整 CSS/JS 視覺排版畫面**渲染於並排預覽框內（不再只是純文字），支援 **`視覺網頁 | 文字 | Raw`** 切換、**`🖥 桌面 (1360px) | 📱 手機 (430px)`** 響應式視角切換、上下捲動、觸控板兩指捏合縮放，以及 **`Open in browser ↗`** 一鍵於瀏覽器開啟。
 
 ### 2. 左下三合一用量與 Claude Credit 剩餘額度（`over9k-usage`）
 - **Claude `Pro`**：由 `~/.claude/statusline-cat.sh` 結尾呼叫 `~/.claude/herdr-usage-cache.sh` 寫入 `~/.cache/over9k/usage/claude.json`；支援讀取 `organizationType` 顯示 `Pro` 標籤，並根據 `~/.cache/over9k/usage/claude-credit.json` 基準點與 `api-cost.py` 追蹤 **`Credit Est.`** 預估剩餘額度（點擊可展開切換 1d / 1w / 2w / 30d 與每日長條圖）。
