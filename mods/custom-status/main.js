@@ -6,8 +6,8 @@
 // statuslines and PreToolUse / PermissionRequest hooks reflect the change immediately.
 
 import { View, div, svg, image } from "gpui-kit";
-import { h_flex } from "gpui-base";
-import { spaces, agents, panes, focused, theme, run, window, keys, exec, home, shared, setShared, notify, checking, props, layout, nextCommand } from "herdr";
+import { h_flex, v_flex } from "gpui-base";
+import { spaces, agents, panes, focused, theme, run, window, keys, exec, hc, home, shared, setShared, notify, checking, props, layout, nextCommand, openOverlay, closeOverlay } from "herdr";
 
 const PERM_SHARED = "herdr.permissions";
 const AGY_TITLES_SHARED = "herdr.agy-titles";
@@ -40,6 +40,131 @@ function shortFolder(cwd) {
   return cwd === h ? "~" : cwd.startsWith(h + "/") ? "~" + cwd.slice(h.length) : cwd;
 }
 
+const SHELL_CMD_RE = /^(?:\$\s+|%\s+)?(?:herdr(?:-app)?|hc|git|cd|sh|bash|zsh|npm|npx|pnpm|yarn|bun|brew|python3?|pip3?|uv|ruby|node|curl|wget|ssh|scp|rsync|rm|cp|mv|mkdir|chmod|chown|cat|head|tail|grep|rg|find|ls|open|qlmanage|docker|kubectl|cargo|go|make|sudo|export|env|claude|codex|agy|ollama|sqlite3|defaults|launchctl|kill|pkill|lsof|ps|tar|unzip|zip)\b/;
+
+function isNoiseLine(line) {
+  const s = line.trim();
+  if (!s) return false;
+  if (/^[─━═\-_=]{8,}$/.test(s)) return true;
+  if (/Context \d+% used/.test(s)) return true;
+  if (/^\[hc\]/.test(s)) return true;
+  if (/^\s*>\s*$/.test(line)) return true;
+  if (/for shortcuts|auto mode on|ctrl\+o to expand|shift\+tab to cycle/i.test(s)) return true;
+  return false;
+}
+
+function extractCopyBlocks(rawText) {
+  if (!rawText) return [];
+  const rawLines = rawText.replace(/\r\n/g, "\n").split("\n");
+  const lines = rawLines.map((l) => l.replace(/\s+$/, ""));
+  const blocks = [];
+  const seen = new Set();
+
+  const addBlock = (tag, content, priority = 1) => {
+    const clean = String(content || "").trim();
+    if (!clean || clean.length < 2) return;
+    if (seen.has(clean)) return;
+    seen.add(clean);
+    blocks.push({ tag, content: clean, priority, lines: clean.split("\n").length });
+  };
+
+  // 1. "📋 複製以下內容 ... 複製到這裡為止" delimited blocks
+  for (let i = 0; i < lines.length; i++) {
+    if (/📋\s*複製以下內容/.test(lines[i])) {
+      const buf = [];
+      let j = i + 1;
+      for (; j < lines.length; j++) {
+        if (/複製到這裡為止/.test(lines[j])) break;
+        if (!isNoiseLine(lines[j])) buf.push(lines[j]);
+      }
+      if (buf.length > 0) {
+        const minIndent = buf.filter((l) => l.trim()).reduce((m, l) => Math.min(m, l.match(/^ */)[0].length), 99);
+        const dedented = buf.map((l) => (l.trim() ? l.slice(Math.min(minIndent, l.match(/^ */)[0].length)) : "")).join("\n");
+        addBlock("📋 待複製內容", dedented, 3);
+      }
+      i = j;
+    }
+  }
+
+  // 2. Single-line "📋 ：..." or "📋 : ..."
+  for (const line of lines) {
+    const m = line.match(/📋\s*[：:]\s*(.+)$/);
+    if (m && m[1] && !/複製以下內容/.test(m[1])) {
+      const val = m[1].trim().replace(/^`+|`+$/g, "");
+      if (val) addBlock("📋 待複製", val, 3);
+    }
+  }
+
+  // 3. Markdown fenced code blocks (```lang ... ```)
+  for (let i = 0; i < lines.length; i++) {
+    const fm = lines[i].match(/^\s*```([A-Za-z0-9_+-]*)\s*$/);
+    if (fm) {
+      const lang = fm[1] || "code";
+      const buf = [];
+      let j = i + 1;
+      for (; j < lines.length; j++) {
+        if (/^\s*```\s*$/.test(lines[j])) break;
+        buf.push(lines[j]);
+      }
+      if (buf.length > 0) {
+        addBlock(lang, buf.join("\n"), 2);
+      }
+      i = j;
+    }
+  }
+
+  // 4. Shell commands / indented code blocks rendered by Claude Code, Codex, or agy
+  let cmdBuf = [];
+  const flushCmd = () => {
+    if (cmdBuf.length > 0) {
+      const minIndent = cmdBuf.filter((l) => l.trim()).reduce((m, l) => Math.min(m, l.match(/^ */)[0].length), 99);
+      const text = cmdBuf.map((l) => (l.trim() ? l.slice(Math.min(minIndent, l.match(/^ */)[0].length)) : "")).join("\n").trim();
+      if (text) addBlock("sh", text, 1);
+      cmdBuf = [];
+    }
+  };
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (isNoiseLine(line)) {
+      flushCmd();
+      continue;
+    }
+    const trimmed = line.trim();
+    if (!trimmed) {
+      flushCmd();
+      continue;
+    }
+    const strippedBullet = trimmed.replace(/^[•·\-*]\s+/, "");
+    const looksLikeCmd = SHELL_CMD_RE.test(trimmed) || (trimmed.startsWith("`") && trimmed.endsWith("`") && SHELL_CMD_RE.test(trimmed.slice(1, -1).trim()));
+    if (looksLikeCmd && trimmed.length <= 240 && !/[。！？]$/.test(trimmed)) {
+      cmdBuf.push(line.replace(/^\s*[$%]\s+/, "").replace(/^(\s*)`(.+)`$/, "$1$2"));
+    } else if (cmdBuf.length > 0 && (/^\s{2,}(?:--|-|\||&&|\\|['"{[\]}])/.test(line) || /\\\s*$/.test(cmdBuf[cmdBuf.length - 1]))) {
+      cmdBuf.push(line);
+    } else {
+      flushCmd();
+      // Also capture inline backticked shell commands inside prose lines
+      const inlineMatches = strippedBullet.matchAll(/`([^`]{6,180})`/g);
+      for (const im of inlineMatches) {
+        const inner = im[1].trim();
+        if (SHELL_CMD_RE.test(inner)) {
+          addBlock("sh", inner, 1);
+        }
+      }
+    }
+  }
+  flushCmd();
+
+  // Reverse so newest blocks appear at the top (highest priority / most recent first)
+  blocks.reverse();
+
+  // Always include a fallback "最近輸出" card if nothing matched
+  if (blocks.length === 0) {
+    const tail = lines.filter((l) => l.trim() && !isNoiseLine(l)).slice(-20).join("\n").trim();
+    if (tail) blocks.push({ tag: "最近輸出", content: tail, priority: 0, lines: tail.split("\n").length });
+  }
+  return blocks.slice(0, 15);
+}
+
 const OPTIONS = [
   { id: "ask",  label: "💬 每次都問", bg: "#3B4252", fg: "#FFFFFF", tip: "嚴格模式（預設）：寫入、修改檔案或執行指令前每次都會詢問你" },
   { id: "safe", label: "🚧 刪改才問", bg: "#2563EB", fg: "#FFFFFF", tip: "安全防護：一般讀寫與測試自動放行；只有刪除檔案或強制覆蓋時才詢問你" },
@@ -48,10 +173,18 @@ const OPTIONS = [
 
 export default class CustomStatus extends View {
   init(_props, cx) {
-    this.isPaneHeader = props()?.view === "pane-header";
+    const viewMode = props()?.view;
+    this.isPaneHeader = viewMode === "pane-header";
+    this.isCopyPicker = viewMode === "copy-picker";
     this.hovered = false;
     this.loaded = false;
-    if (!this.isPaneHeader && !checking()) {
+    this.copyItems = [];
+    this.copyLoading = false;
+    this.copyError = null;
+    this.copiedIdx = -1;
+    if (this.isCopyPicker && !checking()) {
+      this.loadCopyBlocks(cx);
+    } else if (!this.isPaneHeader && !this.isCopyPicker && !checking()) {
       this.syncFromDisk(cx);
       cx.timer.every(6000, (cx) => this.syncAgyTitles(cx));
       cx.spawn(async () => {
@@ -63,6 +196,187 @@ export default class CustomStatus extends View {
         }
       });
     }
+  }
+
+  loadCopyBlocks(cx) {
+    const term = props()?.terminal;
+    if (!term) {
+      this.copyError = "目前沒有可讀取的終端機視窗";
+      this.copyLoading = false;
+      cx.notify();
+      return;
+    }
+    this.copyLoading = true;
+    this.copyError = null;
+    cx.notify();
+    cx.spawn(async (cx) => {
+      try {
+        const r = await hc(["read", term, "--lines", "200"]);
+        if (r?.code === 0) {
+          this.copyItems = extractCopyBlocks(r.stdout || "");
+        } else {
+          this.copyError = r?.stderr?.trim() || "讀取終端機內容失敗";
+        }
+      } catch (e) {
+        this.copyError = String(e?.message ?? e);
+      } finally {
+        this.copyLoading = false;
+        cx.notify();
+      }
+    });
+  }
+
+  openCopyPicker(target) {
+    if (!target?.terminal) {
+      notify({ title: "找不到目標終端機", body: "請先點擊一個對話視窗再開啟複製面板", level: "warning", timeout: 2200 });
+      return;
+    }
+    openOverlay({
+      mod: "custom-status",
+      props: { view: "copy-picker", terminal: target.terminal, name: target.name || target.terminal },
+      kind: "dialog",
+      width: 680,
+      height: 540,
+    });
+  }
+
+  renderCopyPicker(cx) {
+    const t = theme();
+    const overlayId = props()?.overlay;
+    const titleName = props()?.name || "當前終端機";
+    const copyCard = (item, idx) => {
+      const isCopied = this.copiedIdx === idx;
+      const previewLines = item.content.split("\n");
+      const shownText = previewLines.length > 14 ? [...previewLines.slice(0, 14), `…（共 ${previewLines.length} 行，點擊複製全部）`].join("\n") : item.content;
+      return v_flex()
+        .id(`copy-card-${idx}`)
+        .w_full()
+        .rounded(10)
+        .bg(t.surface)
+        .border_1()
+        .border_color(isCopied ? t.done : t.border)
+        .overflow_hidden()
+        .child(
+          h_flex()
+            .w_full()
+            .h(34)
+            .px(12)
+            .gap(8)
+            .items_center()
+            .bg(t.chrome)
+            .border_b(1)
+            .border_color(t.border)
+            .child(div().text_size(11.5).font_semibold().text_color(t.muted).child(item.tag))
+            .child(div().text_size(11).text_color(t.dim).child(`${item.lines} 行`))
+            .child(div().flex_1())
+            .child(
+              h_flex()
+                .id(`copy-card-btn-${idx}`)
+                .h(24)
+                .px(10)
+                .gap(5)
+                .items_center()
+                .rounded(6)
+                .cursor_pointer()
+                .bg(isCopied ? "#16A34A" : t.raised)
+                .text_color(isCopied ? "#FFFFFF" : t.foreground)
+                .hover((s) => (isCopied ? s.opacity(0.92) : s.bg(t.accent).text_color(t.background)))
+                .on_click((_e, cx) => {
+                  cx.write_to_clipboard(item.content);
+                  this.copiedIdx = idx;
+                  cx.notify();
+                  notify({
+                    title: `已複製（${item.tag}）`,
+                    body: item.content.length > 90 ? item.content.slice(0, 90) + "…" : item.content,
+                    level: "success",
+                    timeout: 2200,
+                  });
+                  if (overlayId) {
+                    cx.timer.after(260, () => {
+                      try { closeOverlay(overlayId); } catch {}
+                    });
+                  }
+                })
+                .child(div().text_size(11.5).font_semibold().child(isCopied ? "✓ 已複製" : "📋 複製"))
+            )
+        )
+        .child(
+          div()
+            .w_full()
+            .p(12)
+            .bg(t.background)
+            .text_size(12.5)
+            .text_color(t.foreground)
+            .font_family("Menlo")
+            .child(shownText)
+        );
+    };
+
+    return v_flex()
+      .id("copy-picker-dialog")
+      .size_full()
+      .bg(t.background)
+      .text_color(t.foreground)
+      .child(
+        h_flex()
+          .w_full()
+          .h(44)
+          .px(14)
+          .gap(8)
+          .items_center()
+          .bg(t.chrome)
+          .border_b(1)
+          .border_color(t.border)
+          .child(div().text_size(13.5).font_semibold().child(`📋 可複製區塊（${titleName}）`))
+          .child(div().text_size(11.5).text_color(t.dim).child(this.copyLoading ? "讀取中…" : `共 ${this.copyItems.length} 筆`))
+          .child(div().flex_1())
+          .child(
+            div()
+              .id("copy-picker-refresh")
+              .h(26)
+              .px(9)
+              .flex()
+              .items_center()
+              .rounded(6)
+              .cursor_pointer()
+              .text_size(11.5)
+              .bg(t.raised)
+              .text_color(t.muted)
+              .hover((s) => s.bg(t.hover).text_color(t.foreground))
+              .on_click((_e, cx) => this.loadCopyBlocks(cx))
+              .child("↻ 重新整理")
+          )
+          .child(
+            div()
+              .id("copy-picker-close")
+              .h(26)
+              .px(9)
+              .flex()
+              .items_center()
+              .rounded(6)
+              .cursor_pointer()
+              .text_size(11.5)
+              .text_color(t.dim)
+              .hover((s) => s.bg(t.hover).text_color(t.foreground))
+              .on_click(() => { if (overlayId) try { closeOverlay(overlayId); } catch {} })
+              .child("Esc")
+          )
+      )
+      .child(
+        v_flex()
+          .id("copy-picker-list")
+          .flex_1()
+          .min_h(0)
+          .overflow_y_scrollbar()
+          .p(14)
+          .gap(12)
+          .when(this.copyLoading, (el) => el.child(div().p(12).text_size(12.5).text_color(t.dim).child("正在掃描當前對話中的指令與程式碼區塊…")))
+          .when(Boolean(this.copyError), (el) => el.child(div().p(12).text_size(12.5).text_color(t.ansi1).child(this.copyError)))
+          .when(!this.copyLoading && !this.copyError && this.copyItems.length === 0, (el) =>
+            el.child(div().p(12).text_size(12.5).text_color(t.dim).child("目前畫面上沒有偵測到可複製的程式碼或指令區塊。"))
+          )
+          .when(!this.copyLoading && this.copyItems.length > 0, (el) => el.children(this.copyItems.map((it, i) => copyCard(it, i))))
+      );
   }
 
   closePreviewAndPanel() {
@@ -312,7 +626,10 @@ export default class CustomStatus extends View {
     return key ? `${key}  commands` : "commands";
   }
 
-  render() {
+  render(cx) {
+    if (this.isCopyPicker || props()?.view === "copy-picker") {
+      return this.renderCopyPicker(cx);
+    }
     if (this.isPaneHeader || props()?.view === "pane-header") {
       return this.renderPaneHeader();
     }
@@ -330,6 +647,26 @@ export default class CustomStatus extends View {
       .child(h_flex().gap(6).items_center().child(div().size(6).rounded(3).bg(t.dim)).child(`${list.length} ${list.length === 1 ? "agent" : "agents"}`)
         .when(needs > 0, (el) => el.child(div().text_color(t.blocked).child(`· ${needs} ${needs === 1 ? "needs" : "need"} you`))))
       .child(div().flex_1())
+      .child(
+        div()
+          .id("status-copy-blocks-btn")
+          .h(22)
+          .px(9)
+          .flex()
+          .items_center()
+          .rounded(6)
+          .cursor_pointer()
+          .bg(t.surface)
+          .border_1()
+          .border_color(t.border)
+          .text_size(11.2)
+          .font_semibold()
+          .text_color(t.foreground)
+          .hover((s) => s.bg(t.hover).border_color(t.accent))
+          .tooltip("一鍵檢視並複製當前對話裡的程式碼與待複製區塊")
+          .on_click(() => this.openCopyPicker(target))
+          .child("📋 複製區塊")
+      )
       .child(h_flex().id("perm-switch-group").gap(4).items_center().px(5).py(2).rounded(6).bg(t.surface).border_1().border_color(t.border)
         .child(div().px(4).text_size(11).text_color(t.dim).child(`權限 (${target.name || "當前"}):`))
         .children(OPTIONS.map((opt) => {
